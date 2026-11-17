@@ -43,7 +43,11 @@ public sealed class ScheduleDateTests(GymApiFactory factory)
     {
         using var client = await factory.CreateAdminClientAsync();
         var schedules = await Expect(await client.GetAsync("/api/schedules?date=2026-11-22", Ct), HttpStatusCode.OK);
-        Assert.Empty(schedules.EnumerateArray());
+        // La BD es compartida: otras pruebas pueden crear bloques dominicales con zona única
+        // (p. ej. si la suite corre un sábado y reservan "mañana"). Solo se fija que la siembra no abre domingos
+        // y que todo lo devuelto corresponde a domingo.
+        Assert.DoesNotContain(schedules.EnumerateArray(), slot => slot.GetProperty("zone").GetString() == "Sala de Pesas");
+        Assert.All(schedules.EnumerateArray(), slot => Assert.Equal("Domingo", slot.GetProperty("day").GetString()));
     }
 
     [Theory]
