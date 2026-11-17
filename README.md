@@ -24,9 +24,11 @@ La inicialización usa `EnsureCreated` solo en Development y crea horarios base 
 ## Compilar sin Docker
 
 ```sh
-dotnet restore
-dotnet build -c Release --no-restore
+dotnet restore GymBackend.slnx
+dotnet build GymBackend.slnx -c Release --no-restore
 ```
+
+El proyecto de API está en `src/GymBackend/` y se incluye en la solución raíz `GymBackend.slnx`.
 
 Para ejecutar, suministrar `Jwt__Key`, `ConnectionStrings__DefaultConnection` y `Cors__AllowedOrigins__0` desde el entorno. No escribir secretos en `appsettings.json` ni versionar `.env`.
 

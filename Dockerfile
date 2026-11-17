@@ -1,9 +1,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY GymBackend.csproj ./
-RUN dotnet restore GymBackend.csproj
+COPY src/GymBackend/GymBackend.csproj src/GymBackend/
+RUN dotnet restore src/GymBackend/GymBackend.csproj
 COPY . .
-RUN dotnet publish GymBackend.csproj -c Release -o /app/publish --no-restore
+RUN dotnet publish src/GymBackend/GymBackend.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
