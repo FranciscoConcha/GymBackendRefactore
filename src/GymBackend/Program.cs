@@ -14,6 +14,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddGymCors();
 builder.Services.AddReservationServices();
+builder.Services.AddAuthServices();
 
 var app = builder.Build();
 app.UseExceptionHandler();
