@@ -1,3 +1,4 @@
+using GymBackend.DTOs;
 using GymBackend.Domain;
 using GymBackend.Data;
 using GymBackend.Time;
@@ -32,6 +33,10 @@ public class AttendanceController : ControllerBase
     }
 
     [HttpPost("entry")]
+    [ProducesResponseType<AttendanceMessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> RegisterEntry(AttendanceActionRequest request)
     {
         var now = _clock.LocalNow;
@@ -39,12 +44,12 @@ public class AttendanceController : ControllerBase
         var (user, errorMessage) = await ResolveUserFromTokenAsync(request.Token, now.DateTime);
         if (user is null)
         {
-            return BadRequest(new { message = errorMessage });
+            return BadRequest(new MessageResponse(errorMessage));
         }
 
         if (!user!.Enabled)
         {
-            return BadRequest(new { message = "El usuario no está habilitado." });
+            return BadRequest(new MessageResponse("El usuario no está habilitado."));
         }
 
         var todayKey = now.DateTime.Date.ToString("yyyy-MM-dd");
@@ -54,7 +59,7 @@ public class AttendanceController : ControllerBase
 
         if (attendance is not null && attendance.CheckedIn)
         {
-            return BadRequest(new { message = "Usuario ya registra una entrada en el día." });
+            return BadRequest(new MessageResponse("Usuario ya registra una entrada en el día."));
         }
 
         Reservation? matchedReservation;
@@ -86,7 +91,7 @@ public class AttendanceController : ControllerBase
 
         if (matchedReservation is null)
         {
-            return BadRequest(new { message = "El usuario no se encuentra registrado en el horario de ingreso." });
+            return BadRequest(new MessageResponse("El usuario no se encuentra registrado en el horario de ingreso."));
         }
 
         var adminRut = CurrentAdminRut();
@@ -115,14 +120,14 @@ public class AttendanceController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = "Entrada registrada correctamente.",
-            attendance,
-        });
+        return Ok(new AttendanceMessageResponse("Entrada registrada correctamente.", AttendanceResponse.From(attendance)));
     }
 
     [HttpPost("exit")]
+    [ProducesResponseType<AttendanceMessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> RegisterExit(AttendanceActionRequest request)
     {
         var now = _clock.LocalNow;
@@ -130,12 +135,12 @@ public class AttendanceController : ControllerBase
         var (user, errorMessage) = await ResolveUserFromTokenAsync(request.Token, now.DateTime);
         if (user is null)
         {
-            return BadRequest(new { message = errorMessage });
+            return BadRequest(new MessageResponse(errorMessage));
         }
 
         if (!user!.Enabled)
         {
-            return BadRequest(new { message = "El usuario no está habilitado." });
+            return BadRequest(new MessageResponse("El usuario no está habilitado."));
         }
 
         var todayKey = now.DateTime.Date.ToString("yyyy-MM-dd");
@@ -145,7 +150,7 @@ public class AttendanceController : ControllerBase
 
         if (attendance is null || !attendance.CheckedIn)
         {
-            return BadRequest(new { message = "Usuario no registra una entrada en el día." });
+            return BadRequest(new MessageResponse("Usuario no registra una entrada en el día."));
         }
 
         attendance.ExitTime = _clock.UtcNow.UtcDateTime;
@@ -154,11 +159,7 @@ public class AttendanceController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = "Salida registrada correctamente.",
-            attendance,
-        });
+        return Ok(new AttendanceMessageResponse("Salida registrada correctamente.", AttendanceResponse.From(attendance)));
     }
 
     private async Task<(User? User, string Error)> ResolveUserFromTokenAsync(string? token, DateTime now)
@@ -201,9 +202,4 @@ public class AttendanceController : ControllerBase
     {
         return User.GetRut() ?? string.Empty;
     }
-}
-
-public class AttendanceActionRequest
-{
-    public string Token { get; set; } = string.Empty;
 }

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
+builder.Services.AddGymErrors();
 builder.Services.AddGymOptions();
 builder.Services.AddGymTime();
 builder.Services.AddGymPersistence(builder.Configuration);
@@ -14,6 +15,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddGymCors();
 
 var app = builder.Build();
+app.UseExceptionHandler();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

@@ -1,3 +1,4 @@
+using GymBackend.DTOs;
 using GymBackend.Domain;
 using GymBackend.Data;
 using GymBackend.Time;
@@ -25,16 +26,22 @@ public class ReservationsController : ControllerBase
 
     [HttpGet]
     [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<ReservationResponse[]>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetReservations()
     {
         var reservations = await _context.Reservations
             .OrderByDescending(reservation => reservation.CreatedAt)
             .ToListAsync();
 
-        return Ok(reservations);
+        return Ok(reservations.Select(ReservationResponse.From));
     }
 
     [HttpGet("user/{userId}")]
+    [ProducesResponseType<ReservationResponse[]>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetReservationsByUser(int userId)
     {
         if (!User.IsInRole(Roles.Admin))
@@ -42,7 +49,7 @@ public class ReservationsController : ControllerBase
             var currentUserId = User.GetUserId();
             if (currentUserId is null)
             {
-                return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+                return Unauthorized(new MessageResponse("La sesión no contiene un usuario válido."));
             }
 
             if (currentUserId.Value != userId)
@@ -56,16 +63,19 @@ public class ReservationsController : ControllerBase
             .OrderByDescending(reservation => reservation.CreatedAt)
             .ToListAsync();
 
-        return Ok(reservations);
+        return Ok(reservations.Select(ReservationResponse.From));
     }
 
     [HttpPost]
+    [ProducesResponseType<ReservationMessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateReservation(CreateReservationRequest request)
     {
         var userId = User.GetUserId();
         if (userId is null)
         {
-            return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+            return Unauthorized(new MessageResponse("La sesión no contiene un usuario válido."));
         }
         var day = request.Day.Trim();
         var startTime = request.StartTime.Trim();
@@ -81,14 +91,14 @@ public class ReservationsController : ControllerBase
 
         if (schedule is null)
         {
-            return BadRequest(new { message = "El bloque seleccionado no está disponible." });
+            return BadRequest(new MessageResponse("El bloque seleccionado no está disponible."));
         }
 
         var user = await _context.Users.FindAsync(userId.Value);
 
         if (user is null)
         {
-            return Unauthorized(new { message = "La sesión no corresponde a un usuario válido." });
+            return Unauthorized(new MessageResponse("La sesión no corresponde a un usuario válido."));
         }
 
         var reservedCount = await _context.Reservations.CountAsync(reservation =>
@@ -100,7 +110,7 @@ public class ReservationsController : ControllerBase
 
         if (reservedCount >= schedule.Capacity)
         {
-            return BadRequest(new { message = "No quedan cupos disponibles para este bloque." });
+            return BadRequest(new MessageResponse("No quedan cupos disponibles para este bloque."));
         }
 
         var alreadyReserved = await _context.Reservations.AnyAsync(reservation =>
@@ -113,7 +123,7 @@ public class ReservationsController : ControllerBase
 
         if (alreadyReserved)
         {
-            return BadRequest(new { message = "Ya tienes una reserva para este bloque." });
+            return BadRequest(new MessageResponse("Ya tienes una reserva para este bloque."));
         }
 
         var reservation = new Reservation
@@ -132,21 +142,21 @@ public class ReservationsController : ControllerBase
         _context.Reservations.Add(reservation);
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = "Reserva creada correctamente.",
-            reservation,
-        });
+        return Ok(new ReservationMessageResponse("Reserva creada correctamente.", ReservationResponse.From(reservation)));
     }
 
     [HttpDelete("{id}")]
+    [ProducesResponseType<ReservationMessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CancelReservation(int id)
     {
         var reservation = await _context.Reservations.FindAsync(id);
 
         if (reservation is null)
         {
-            return NotFound(new { message = "Reserva no encontrada." });
+            return NotFound(new MessageResponse("Reserva no encontrada."));
         }
 
         if (!User.IsInRole(Roles.Admin))
@@ -154,7 +164,7 @@ public class ReservationsController : ControllerBase
             var currentUserId = User.GetUserId();
             if (currentUserId is null)
             {
-                return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+                return Unauthorized(new MessageResponse("La sesión no contiene un usuario válido."));
             }
 
             if (reservation.UserId != currentUserId.Value)
@@ -166,21 +176,6 @@ public class ReservationsController : ControllerBase
         reservation.Status = ReservationStatuses.Cancelled;
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = "Reserva cancelada correctamente.",
-            reservation,
-        });
+        return Ok(new ReservationMessageResponse("Reserva cancelada correctamente.", ReservationResponse.From(reservation)));
     }
-}
-
-public class CreateReservationRequest
-{
-    public string Day { get; set; } = string.Empty;
-
-    public string StartTime { get; set; } = string.Empty;
-
-    public string EndTime { get; set; } = string.Empty;
-
-    public string Zone { get; set; } = Zones.Default;
 }
