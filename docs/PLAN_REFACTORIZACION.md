@@ -29,7 +29,7 @@
 ## 2. Estrategia de ramas (GitHub)
 
 ```
-main  ←── test  ←── dev  ←── feature/*, refactor/*, fix/*, test/*, chore/*, docs/*
+main  ←── test  ←── dev  ←── feature/*, refactor/*, fix/*, tests/*, chore/*, docs/*
  (estable,  (QA /       (integración
   tags)      candidata)   continua)
 ```
@@ -77,8 +77,8 @@ Modo de trabajo por tarea: encargo en `.md` → Codex implementa en worktree/ram
 | Rama | Tarea | Criterio |
 |---|---|---|
 | `chore/f1-solution-layout` | Mover a `src/GymBackend/`, crear `GymBackend.slnx` y `tests/`; adaptar Dockerfile, CI y README | `dotnet build` y `docker build` en verde; mismos endpoints |
-| `test/f1-integration-harness` | `tests/GymBackend.IntegrationTests`: xUnit, `WebApplicationFactory`, Testcontainers PostgreSQL, *helpers* de JWT y *seed* | Arranca la API contra un PostgreSQL efímero |
-| `test/f1-characterization` | Pruebas del comportamiento **actual** de Auth, Schedules, Reservations, Qr, Attendance y health, incluidos los casos de 401/403/400 | ≥1 prueba por endpoint y regla de negocio; todas en verde |
+| `tests/f1-integration-harness` | `tests/GymBackend.IntegrationTests`: xUnit, `WebApplicationFactory`, Testcontainers PostgreSQL, *helpers* de JWT y *seed* | Arranca la API contra un PostgreSQL efímero |
+| `tests/f1-characterization` | Pruebas del comportamiento **actual** de Auth, Schedules, Reservations, Qr, Attendance y health, incluidos los casos de 401/403/400 | ≥1 prueba por endpoint y regla de negocio; todas en verde |
 
 Riesgo: las pruebas de integración requieren Docker en local y en CI (`ubuntu-latest` ya lo incluye).
 
@@ -96,7 +96,7 @@ Riesgo: las pruebas de integración requieren Docker en local y en CI (`ubuntu-l
 | `refactor/f3-auth-service` | `IAuthService`, `IUserService`, `ITokenService` | Controlador sin `DbContext` |
 | `refactor/f3-reservation-schedule-service` | `IReservationService` e `IScheduleService` | Ídem |
 | `refactor/f3-attendance-qr-service` | `IAttendanceService`; `QrTokenService` deja de ser estático y pasa a inyectarse | Ídem |
-| `test/f3-unit-tests` | `tests/GymBackend.UnitTests` para reglas puras (ventana horaria, cupo, QR) | Cobertura de reglas de negocio |
+| `tests/f3-unit-tests` | `tests/GymBackend.UnitTests` para reglas puras (ventana horaria, cupo, QR) | Cobertura de reglas de negocio |
 
 Las tres primeras tareas pueden ejecutarse en paralelo porque usan archivos disjuntos; el registro de DI se integra al final.
 
