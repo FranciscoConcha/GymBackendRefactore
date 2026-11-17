@@ -38,7 +38,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     {
         try
         {
-            await _postgres.StartAsync();
+            await _postgres.StartAsync(TestContext.Current.CancellationToken);
             SetEnvironment("ConnectionStrings__DefaultConnection", _postgres.GetConnectionString());
             SetEnvironment("Jwt__Key", JwtKey);
             SetEnvironment("Database__Initialize", "true");
@@ -85,7 +85,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         try
         {
             using var response = await client.PostAsJsonAsync("/api/auth/admin-login",
-                new { username = AdminUsername, password = AdminPassword }, JsonOptions);
+                new { username = AdminUsername, password = AdminPassword }, JsonOptions, TestContext.Current.CancellationToken);
             var auth = await ReadAuthAsync(response);
             SetToken(client, auth.Token);
             return client;
@@ -106,14 +106,14 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         using var registration = await admin.PostAsJsonAsync("/api/auth/register", new
         {
             rut, name = $"Test {rut}", email = $"user-{rut}@example.test", password, userType,
-        }, JsonOptions);
+        }, JsonOptions, TestContext.Current.CancellationToken);
         var registered = await ReadAuthAsync(registration);
         var userId = registered.User?.Id
             ?? throw new InvalidOperationException("El registro no devolvió el usuario.");
         var client = CreateClient();
         try
         {
-            using var login = await client.PostAsJsonAsync("/api/auth/login", new { rut, password }, JsonOptions);
+            using var login = await client.PostAsJsonAsync("/api/auth/login", new { rut, password }, JsonOptions, TestContext.Current.CancellationToken);
             var auth = await ReadAuthAsync(login);
             SetToken(client, auth.Token);
             return (client, userId, rut, password);
@@ -170,7 +170,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
                 Zone = $"Zona-{Guid.NewGuid():N}", Enabled = true,
             };
             db.ScheduleSlots.Add(slot);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             return slot;
         });
 
@@ -183,7 +183,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     private static async Task<AuthResponse> ReadAuthAsync(HttpResponseMessage response)
     {
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions)
+        return await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, TestContext.Current.CancellationToken)
             ?? throw new InvalidOperationException("La API devolvió una respuesta de autenticación vacía.");
     }
 
