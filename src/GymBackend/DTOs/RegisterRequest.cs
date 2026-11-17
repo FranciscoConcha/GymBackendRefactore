@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 namespace GymBackend.DTOs;
 
 public class RegisterRequest
@@ -10,5 +11,5 @@ public class RegisterRequest
 
     public string Password { get; set; } = string.Empty;
 
-    public string UserType { get; set; } = "Estudiante";
+    public string UserType { get; set; } = UserTypes.Student;
 }

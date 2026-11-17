@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 using GymBackend.Models;
 using GymBackend.Options;
 using Microsoft.EntityFrameworkCore;
@@ -18,18 +19,18 @@ public static class DevelopmentSeeder
         await db.Database.EnsureCreatedAsync(ct);
         if (!await db.ScheduleSlots.AnyAsync(ct))
         {
-            var days = new[] { "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado" };
+            var days = GymWeekdays.OpeningDays;
             var ranges = new[] { (Start: "08:00", End: "09:30"), (Start: "09:30", End: "11:00"), (Start: "11:00", End: "12:30"), (Start: "13:00", End: "14:30") };
             db.ScheduleSlots.AddRange(days.SelectMany(day => ranges.Select(range => new ScheduleSlot
             {
                 Day = day, StartTime = range.Start, EndTime = range.End,
-                Zone = "Sala de Pesas", Capacity = 20, Enabled = true,
+                Zone = Zones.Default, Capacity = 20, Enabled = true,
             })));
             await db.SaveChangesAsync(ct);
         }
         var bootstrap = scope.ServiceProvider.GetRequiredService<IOptions<BootstrapOptions>>().Value;
         var adminPassword = bootstrap.AdminPassword;
-        if (!await db.Users.AnyAsync(user => user.Role == "Admin", ct) && !string.IsNullOrWhiteSpace(adminPassword))
+        if (!await db.Users.AnyAsync(user => user.Role == Roles.Admin, ct) && !string.IsNullOrWhiteSpace(adminPassword))
         {
             var rut = bootstrap.AdminRut;
             var email = bootstrap.AdminEmail;
@@ -39,10 +40,10 @@ public static class DevelopmentSeeder
             // Kept compatible with the extracted AuthController for audit; not a hardened password scheme.
             db.Users.Add(new User
             {
-                Rut = rut, Name = "Administrador", Email = email.Trim().ToLowerInvariant(),
+                Rut = rut, Name = UserTypes.Administrator, Email = email.Trim().ToLowerInvariant(),
                 Username = username.Trim().ToLowerInvariant(),
                 PasswordHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(adminPassword))),
-                UserType = "Administrador", Role = "Admin", Enabled = true,
+                UserType = UserTypes.Administrator, Role = Roles.Admin, Enabled = true,
             });
             await db.SaveChangesAsync(ct);
         }

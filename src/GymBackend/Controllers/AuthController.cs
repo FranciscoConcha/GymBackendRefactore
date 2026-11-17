@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 using GymBackend.Data;
 using GymBackend.Options;
 using Microsoft.Extensions.Options;
@@ -29,7 +30,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Admin)]
     public async Task<IActionResult> Register(RegisterRequest request)
     {
         var rut = request.Rut.Trim();
@@ -47,7 +48,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Todos los campos son obligatorios." });
         }
 
-        if (userType.Equals("Administrador", StringComparison.OrdinalIgnoreCase))
+        if (userType.Equals(UserTypes.Administrator, StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest(new { message = "Los administradores deben crearse por un proceso controlado." });
         }
@@ -70,7 +71,7 @@ public class AuthController : ControllerBase
             Username = string.Empty,
             PasswordHash = HashPassword(request.Password),
             UserType = userType,
-            Role = "Cliente",
+            Role = Roles.Client,
         };
 
         _context.Users.Add(user);
@@ -102,7 +103,7 @@ public class AuthController : ControllerBase
         var user = await _context.Users.FirstOrDefaultAsync(candidate =>
             candidate.Rut == rut && candidate.PasswordHash == passwordHash);
 
-        if (user is null || user.Role == "Admin")
+        if (user is null || user.Role == Roles.Admin)
         {
             return Unauthorized(new { message = "Credenciales de usuario incorrectas." });
         }
@@ -124,7 +125,7 @@ public class AuthController : ControllerBase
         var admin = await _context.Users.FirstOrDefaultAsync(candidate =>
             candidate.Username.ToLower() == username &&
             candidate.PasswordHash == passwordHash &&
-            candidate.Role == "Admin");
+            candidate.Role == Roles.Admin);
 
         if (admin is null)
         {
@@ -135,7 +136,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet("users")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Admin)]
     public async Task<IActionResult> GetUsers()
     {
         var users = (await _context.Users
@@ -147,7 +148,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPatch("users/{id}/status")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Admin)]
     public async Task<IActionResult> SetUserStatus(int id, SetUserStatusRequest request)
     {
         var user = await _context.Users.FindAsync(id);
@@ -157,7 +158,7 @@ public class AuthController : ControllerBase
             return NotFound(new { message = "Usuario no encontrado." });
         }
 
-        if (user.Role == "Admin")
+        if (user.Role == Roles.Admin)
         {
             return BadRequest(new { message = "No se puede deshabilitar a un administrador." });
         }
@@ -182,8 +183,8 @@ public class AuthController : ControllerBase
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Name, user.Name),
             new Claim(ClaimTypes.Role, user.Role),
-            new Claim("rut", user.Rut),
-            new Claim("email", user.Email),
+            new Claim(GymClaimTypes.Rut, user.Rut),
+            new Claim(GymClaimTypes.Email, user.Email),
         };
 
         var credentials = new SigningCredentials(

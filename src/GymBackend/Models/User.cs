@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 namespace GymBackend.Models;
 
 public class User
@@ -14,9 +15,9 @@ public class User
 
     public string PasswordHash { get; set; } = string.Empty;
 
-    public string UserType { get; set; } = "Estudiante";
+    public string UserType { get; set; } = UserTypes.Student;
 
-    public string Role { get; set; } = "Cliente";
+    public string Role { get; set; } = Roles.Client;
 
     public bool Enabled { get; set; } = true;
 }
