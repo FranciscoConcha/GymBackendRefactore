@@ -31,6 +31,16 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
             return ServiceError.Validation("Los administradores deben crearse por un proceso controlado.");
         }
 
+        if (!InputRules.IsSafeName(name))
+        {
+            return ServiceError.Validation("El nombre contiene caracteres no permitidos.");
+        }
+
+        if (!InputRules.IsValidEmail(email))
+        {
+            return ServiceError.Validation("El correo no tiene un formato válido.");
+        }
+
         if (await context.Users.AnyAsync(user => user.Rut == rut, ct))
         {
             return ServiceError.Validation("El RUT ya está registrado en el sistema.");
