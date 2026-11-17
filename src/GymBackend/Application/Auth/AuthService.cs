@@ -22,10 +22,14 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             return ServiceError.Validation("La contraseña es obligatoria.");
         }
 
-        var user = await context.Users.FirstOrDefaultAsync(candidate =>
-            candidate.Rut == rut, ct);
+        var candidates = await context.Users
+            .Where(candidate => candidate.Rut == rut)
+            .OrderBy(candidate => candidate.Id)
+            .ToListAsync(ct);
+        var user = candidates.FirstOrDefault(candidate =>
+            passwordHasher.Verify(request.Password, candidate.PasswordHash));
 
-        if (user is null || !passwordHasher.Verify(request.Password, user.PasswordHash) || user.Role == Roles.Admin)
+        if (user is null || user.Role == Roles.Admin)
         {
             return ServiceError.Unauthorized("Credenciales de usuario incorrectas.");
         }
@@ -42,11 +46,14 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             return ServiceError.Validation("El usuario y la contraseña son obligatorios.");
         }
 
-        var admin = await context.Users.FirstOrDefaultAsync(candidate =>
-            candidate.Username.ToLower() == username &&
-            candidate.Role == Roles.Admin, ct);
+        var candidates = await context.Users
+            .Where(candidate => candidate.Username.ToLower() == username && candidate.Role == Roles.Admin)
+            .OrderBy(candidate => candidate.Id)
+            .ToListAsync(ct);
+        var admin = candidates.FirstOrDefault(candidate =>
+            passwordHasher.Verify(request.Password, candidate.PasswordHash));
 
-        if (admin is null || !passwordHasher.Verify(request.Password, admin.PasswordHash))
+        if (admin is null)
         {
             return ServiceError.Unauthorized("Credenciales de administrador incorrectas.");
         }
