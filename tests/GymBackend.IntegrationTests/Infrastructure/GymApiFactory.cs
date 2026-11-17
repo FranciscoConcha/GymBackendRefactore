@@ -43,6 +43,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         });
 
     public string JwtKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    public string QrKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     public string AdminRut { get; } = TestData.NextRut();
     public string AdminEmail { get; } = $"admin-{Guid.NewGuid():N}@example.test";
     public string AdminUsername { get; } = $"admin-{Guid.NewGuid():N}";
@@ -55,6 +56,11 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             await _postgres.StartAsync(TestContext.Current.CancellationToken);
             SetEnvironment("ConnectionStrings__DefaultConnection", _postgres.GetConnectionString());
             SetEnvironment("Jwt__Key", JwtKey);
+            SetEnvironment("Jwt__Issuer", "gym-tests");
+            SetEnvironment("Jwt__Audience", "gym-tests-clients");
+            SetEnvironment("Qr__SigningKey", QrKey);
+            // Umbral alto: las pruebas inician sesión muchas veces; las de límite usan un host derivado.
+            SetEnvironment("RateLimiting__Login__PermitLimit", "100000");
             SetEnvironment("Database__Initialize", "true");
             SetEnvironment("Bootstrap__AdminRut", AdminRut);
             SetEnvironment("Bootstrap__AdminEmail", AdminEmail);
