@@ -15,6 +15,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddGymCors();
 builder.Services.AddReservationServices();
 builder.Services.AddAuthServices();
+builder.Services.AddAttendanceServices();
 
 var app = builder.Build();
 app.UseExceptionHandler();
