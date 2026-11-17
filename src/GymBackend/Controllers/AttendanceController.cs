@@ -1,4 +1,6 @@
 using GymBackend.Data;
+using GymBackend.Options;
+using Microsoft.Extensions.Options;
 using GymBackend.Models;
 using GymBackend.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -22,12 +24,12 @@ public class AttendanceController : ControllerBase
     };
 
     private readonly AppDbContext _context;
-    private readonly IConfiguration _configuration;
+    private readonly IOptions<JwtOptions> _jwtOptions;
 
-    public AttendanceController(AppDbContext context, IConfiguration configuration)
+    public AttendanceController(AppDbContext context, IOptions<JwtOptions> jwtOptions)
     {
         _context = context;
-        _configuration = configuration;
+        _jwtOptions = jwtOptions;
     }
 
     [HttpPost("entry")]
@@ -162,7 +164,7 @@ public class AttendanceController : ControllerBase
     {
         user = null;
 
-        var signingKey = _configuration["Jwt:Key"]
+        var signingKey = _jwtOptions.Value.Key
             ?? throw new InvalidOperationException("Jwt:Key no está configurada.");
 
         if (!QrTokenService.TryValidateToken(token, signingKey, now.Date, out var rut, out errorMessage))

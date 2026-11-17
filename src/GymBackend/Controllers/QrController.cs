@@ -1,4 +1,6 @@
 using GymBackend.Data;
+using GymBackend.Options;
+using Microsoft.Extensions.Options;
 using GymBackend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,12 +15,12 @@ namespace GymBackend.Controllers;
 public class QrController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly IConfiguration _configuration;
+    private readonly IOptions<JwtOptions> _jwtOptions;
 
-    public QrController(AppDbContext context, IConfiguration configuration)
+    public QrController(AppDbContext context, IOptions<JwtOptions> jwtOptions)
     {
         _context = context;
-        _configuration = configuration;
+        _jwtOptions = jwtOptions;
     }
 
     [HttpGet("my-code")]
@@ -32,7 +34,7 @@ public class QrController : ControllerBase
             return Unauthorized(new { message = "La sesión no corresponde a un usuario válido." });
         }
 
-        var signingKey = _configuration["Jwt:Key"]
+        var signingKey = _jwtOptions.Value.Key
             ?? throw new InvalidOperationException("Jwt:Key no está configurada.");
 
         var today = DateTime.Now.Date;
