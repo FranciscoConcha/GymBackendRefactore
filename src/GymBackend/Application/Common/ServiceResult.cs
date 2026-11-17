@@ -6,6 +6,7 @@ public enum ServiceErrorKind
     Unauthorized,
     Forbidden,
     NotFound,
+    Conflict,
 }
 
 public sealed record ServiceError(ServiceErrorKind Kind, string Message)
@@ -13,6 +14,7 @@ public sealed record ServiceError(ServiceErrorKind Kind, string Message)
     public static ServiceError Validation(string message) => new(ServiceErrorKind.Validation, message);
     public static ServiceError Unauthorized(string message) => new(ServiceErrorKind.Unauthorized, message);
     public static ServiceError Forbidden() => new(ServiceErrorKind.Forbidden, string.Empty);
+    public static ServiceError Conflict(string message) => new(ServiceErrorKind.Conflict, message);
     public static ServiceError NotFound(string message) => new(ServiceErrorKind.NotFound, message);
 }
 
