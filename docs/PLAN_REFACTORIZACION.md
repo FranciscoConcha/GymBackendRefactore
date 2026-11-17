@@ -25,6 +25,7 @@
 | D13 | Se puede cancelar una reserva ya `Asistió`/`Cancelado` | `ReservationsController.CancelReservation` | Baja |
 | D14 | Versiones EF 10.0.0 frente a ASP.NET 10.0.8; Swashbuckle y OpenApi a la vez | `GymBackend.csproj` | Baja |
 | D15 | Cero pruebas automatizadas; CI solo en `main` y sin pruebas | `.github/workflows/build.yml` | Alta (bloquea refactorizar con seguridad) |
+| D16 | La hora del gimnasio depende de la zona del servidor (`DateTime.Now`); solo Docker fija `TZ=America/Santiago`. En un servidor UTC, la fecha del QR, la ventana de ingreso y el día de la semana se desplazan 3-4 h | `QrController`, `AttendanceController`, `Dockerfile` | Alta |
 
 ## 2. Estrategia de ramas (GitHub)
 
@@ -88,7 +89,8 @@ Riesgo: las pruebas de integración requieren Docker en local y en CI (`ubuntu-l
 | `refactor/f2-options-config` | `JwtOptions`, `CorsOptions` y `BootstrapOptions` con `ValidateOnStart`; el *seed* sale de `Program.cs` a `DevelopmentSeeder` | `Program.cs` < 60 líneas; las pruebas F1 siguen en verde |
 | `refactor/f2-constants-claims` | Constantes de roles, estados y días; extensión `ClaimsPrincipal.GetUserId()` que devuelve 401 en lugar de 500 | Sin cadenas mágicas en los controladores |
 | `refactor/f2-dtos-errors` | DTOs `record` de respuesta (mismo JSON), `ProblemDetails` y manejador global de excepciones | Contrato JSON idéntico (verificado por F1) |
-| `refactor/f2-time-packages` | `TimeProvider` con zona `America/Santiago`; consulta asíncrona en Attendance (D12); alinear versiones EF/ASP.NET; decidir Swashbuckle frente a OpenApi | Pruebas de Attendance con reloj simulado |
+| `refactor/f2-gym-clock` | Zona horaria explícita `Gym:TimeZone` (IANA, por defecto `America/Santiago`, validada al arrancar). Servicio `IGymClock` sobre `TimeProvider` que entrega la fecha, la hora y el día en la zona del gimnasio; se elimina todo `DateTime.Now` (D16). Regla: la BD guarda instantes en UTC y las fechas y horarios de los bloques son hora local del gimnasio. Consulta asíncrona en Attendance (D12) | Pruebas con `FakeTimeProvider` y servidor en UTC: 23:50 de Santiago (el QR mantiene la fecha local), cambio de horario de abril y septiembre, borde de la ventana de ±15 min en UTC−3 y UTC−4 |
+| `chore/f2-packages` | Alinear EF/ASP.NET a 10.0.13 y Npgsql a 10.0.3; corregir NU1903 (`Pkcs` vía `EF.Tools`); retirar `Microsoft.AspNetCore.OpenApi` (no se usa; se mantiene Swashbuckle) | `dotnet list package --vulnerable` vacío |
 
 ### F3 — Capa de aplicación (servicios) → **H4**
 | Rama | Tarea | Criterio |
@@ -108,6 +110,7 @@ Las tres primeras tareas pueden ejecutarse en paralelo porque usan archivos disj
 | `feat/f4-reservation-slot-fk` | `Reservation.ScheduleSlotId` como FK; retirar las columnas duplicadas (D7) | Migración con transformación de datos probada |
 | `fix/f4-capacity-concurrency` | Control de cupo atómico (transacción serializable o bloqueo de fila del bloque) (D5) | Prueba concurrente: N+1 solicitudes simultáneas → exactamente N reservas |
 | `refactor/f4-enums` | Estados y roles como `enum` persistidos como texto | Migración sin pérdida |
+| `refactor/f4-local-time-types` | `Day`/`StartTime`/`EndTime` como `DayOfWeek`/`TimeOnly` y `Attendance.Date` como `DateOnly` (hora local del gimnasio); instantes como `timestamptz` UTC | Migración con conversión probada; pruebas horarias en verde |
 
 ### F5 — Endurecimiento de seguridad (crítica) → **H6**
 | Rama | Tarea | Criterio |
@@ -136,7 +139,9 @@ Las tres primeras tareas pueden ejecutarse en paralelo porque usan archivos disj
 5. **Fusión a `dev`:** autorizada sin consulta cuando la CI está en verde y la revisión independiente no tiene observaciones. `dev→test` y `test→main` requieren hito.
 6. **Publicación:** el usuario confirmó que tiene permiso para publicar en el repositorio público.
 
-Adicional: en F0 se detectó `NU1903` (`System.Security.Cryptography.Pkcs` 9.0.0, vulnerabilidad alta, transitiva). Se corrige en `refactor/f2-time-packages`.
+Adicional: en F0 se detectó `NU1903` (`System.Security.Cryptography.Pkcs` 9.0.0, vulnerabilidad alta, transitiva). Se corrige en `chore/f2-packages`.
+
+Adicional H2 (2026-11-17): la hora del gimnasio se calcula siempre en `America/Santiago` (zona IANA, con horario de verano), independientemente del servidor (D16, `refactor/f2-gym-clock`). Si en el futuro hay sedes en otra zona (por ejemplo, `America/Punta_Arenas`), la zona pasa a configurarse por sede.
 
 ## 6. Riesgos
 
