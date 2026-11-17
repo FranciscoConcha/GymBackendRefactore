@@ -1,10 +1,9 @@
+using GymBackend.Application.Auth;
 using GymBackend.Domain;
 using GymBackend.Models;
 using GymBackend.Options;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace GymBackend.Data;
 
@@ -37,12 +36,12 @@ public static class DevelopmentSeeder
             var username = bootstrap.AdminUsername;
             if (adminPassword.Length < 16 || string.IsNullOrWhiteSpace(rut) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(username))
                 throw new InvalidOperationException("Bootstrap requiere RUT, correo, usuario y una contraseña de al menos 16 caracteres.");
-            // Kept compatible with the extracted AuthController for audit; not a hardened password scheme.
+            var passwordHasher = scope.ServiceProvider.GetRequiredService<IUserPasswordHasher>();
             db.Users.Add(new User
             {
                 Rut = rut, Name = UserTypes.Administrator, Email = email.Trim().ToLowerInvariant(),
                 Username = username.Trim().ToLowerInvariant(),
-                PasswordHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(adminPassword))),
+                PasswordHash = passwordHasher.Hash(adminPassword),
                 UserType = UserTypes.Administrator, Role = Roles.Admin, Enabled = true,
             });
             await db.SaveChangesAsync(ct);
