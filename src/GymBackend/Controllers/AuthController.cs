@@ -1,4 +1,6 @@
 using GymBackend.Data;
+using GymBackend.Options;
+using Microsoft.Extensions.Options;
 using GymBackend.DTOs;
 using GymBackend.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -18,12 +20,12 @@ namespace GymBackend.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly IConfiguration _configuration;
+    private readonly IOptions<JwtOptions> _jwtOptions;
 
-    public AuthController(AppDbContext context, IConfiguration configuration)
+    public AuthController(AppDbContext context, IOptions<JwtOptions> jwtOptions)
     {
         _context = context;
-        _configuration = configuration;
+        _jwtOptions = jwtOptions;
     }
 
     [HttpPost("register")]
@@ -172,7 +174,7 @@ public class AuthController : ControllerBase
 
     private object CreateAuthResponse(User user, string message)
     {
-        var key = _configuration["Jwt:Key"]
+        var key = _jwtOptions.Value.Key
             ?? throw new InvalidOperationException("Jwt:Key no está configurada.");
 
         var claims = new[]
