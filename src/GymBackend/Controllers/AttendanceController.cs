@@ -1,4 +1,5 @@
 using GymBackend.Data;
+using GymBackend.Time;
 using GymBackend.Options;
 using Microsoft.Extensions.Options;
 using GymBackend.Models;
@@ -24,20 +25,23 @@ public class AttendanceController : ControllerBase
     };
 
     private readonly AppDbContext _context;
+    private readonly IGymClock _clock;
     private readonly IOptions<JwtOptions> _jwtOptions;
 
-    public AttendanceController(AppDbContext context, IOptions<JwtOptions> jwtOptions)
+    public AttendanceController(AppDbContext context, IOptions<JwtOptions> jwtOptions, IGymClock clock)
     {
         _context = context;
+        _clock = clock;
         _jwtOptions = jwtOptions;
     }
 
     [HttpPost("entry")]
     public async Task<IActionResult> RegisterEntry(AttendanceActionRequest request)
     {
-        var now = DateTime.Now;
+        var now = _clock.LocalNow;
 
-        if (!TryResolveUserFromToken(request.Token, now, out var user, out var errorMessage))
+        var (user, errorMessage) = await ResolveUserFromTokenAsync(request.Token, now.DateTime);
+        if (user is null)
         {
             return BadRequest(new { message = errorMessage });
         }
@@ -47,7 +51,7 @@ public class AttendanceController : ControllerBase
             return BadRequest(new { message = "El usuario no está habilitado." });
         }
 
-        var todayKey = now.Date.ToString("yyyy-MM-dd");
+        var todayKey = now.DateTime.Date.ToString("yyyy-MM-dd");
 
         var attendance = await _context.Attendances.FirstOrDefaultAsync(candidate =>
             candidate.UserId == user.Id && candidate.Date == todayKey);
@@ -61,7 +65,7 @@ public class AttendanceController : ControllerBase
 
         if (attendance is null)
         {
-            var todayName = SpanishWeekdays[(int)now.DayOfWeek];
+            var todayName = SpanishWeekdays[(int)now.DateTime.DayOfWeek];
 
             var todaysReservations = await _context.Reservations
                 .Where(reservation =>
@@ -70,7 +74,7 @@ public class AttendanceController : ControllerBase
                     reservation.Status == "Reservado")
                 .ToListAsync();
 
-            matchedReservation = todaysReservations.FirstOrDefault(reservation => IsWithinSchedule(reservation, now));
+            matchedReservation = todaysReservations.FirstOrDefault(reservation => IsWithinSchedule(reservation, now.DateTime));
         }
         else
         {
@@ -78,7 +82,7 @@ public class AttendanceController : ControllerBase
                 ? await _context.Reservations.FindAsync(attendance.ReservationId.Value)
                 : null;
 
-            if (matchedReservation is not null && !IsWithinSchedule(matchedReservation, now))
+            if (matchedReservation is not null && !IsWithinSchedule(matchedReservation, now.DateTime))
             {
                 matchedReservation = null;
             }
@@ -99,7 +103,7 @@ public class AttendanceController : ControllerBase
                 Rut = user.Rut,
                 UserName = user.Name,
                 Date = todayKey,
-                EntryTime = now.ToUniversalTime(),
+                EntryTime = _clock.UtcNow.UtcDateTime,
                 EntryAdminRut = adminRut,
                 CheckedIn = true,
                 ReservationId = matchedReservation.Id,
@@ -125,9 +129,10 @@ public class AttendanceController : ControllerBase
     [HttpPost("exit")]
     public async Task<IActionResult> RegisterExit(AttendanceActionRequest request)
     {
-        var now = DateTime.Now;
+        var now = _clock.LocalNow;
 
-        if (!TryResolveUserFromToken(request.Token, now, out var user, out var errorMessage))
+        var (user, errorMessage) = await ResolveUserFromTokenAsync(request.Token, now.DateTime);
+        if (user is null)
         {
             return BadRequest(new { message = errorMessage });
         }
@@ -137,7 +142,7 @@ public class AttendanceController : ControllerBase
             return BadRequest(new { message = "El usuario no está habilitado." });
         }
 
-        var todayKey = now.Date.ToString("yyyy-MM-dd");
+        var todayKey = now.DateTime.Date.ToString("yyyy-MM-dd");
 
         var attendance = await _context.Attendances.FirstOrDefaultAsync(candidate =>
             candidate.UserId == user.Id && candidate.Date == todayKey);
@@ -147,7 +152,7 @@ public class AttendanceController : ControllerBase
             return BadRequest(new { message = "Usuario no registra una entrada en el día." });
         }
 
-        attendance.ExitTime = now.ToUniversalTime();
+        attendance.ExitTime = _clock.UtcNow.UtcDateTime;
         attendance.ExitAdminRut = CurrentAdminRut();
         attendance.CheckedIn = false;
 
@@ -160,27 +165,25 @@ public class AttendanceController : ControllerBase
         });
     }
 
-    private bool TryResolveUserFromToken(string? token, DateTime now, out User? user, out string errorMessage)
+    private async Task<(User? User, string Error)> ResolveUserFromTokenAsync(string? token, DateTime now)
     {
-        user = null;
-
         var signingKey = _jwtOptions.Value.Key
             ?? throw new InvalidOperationException("Jwt:Key no está configurada.");
 
-        if (!QrTokenService.TryValidateToken(token, signingKey, now.Date, out var rut, out errorMessage))
+        if (!QrTokenService.TryValidateToken(token, signingKey, now.Date, out var rut, out var errorMessage))
         {
-            return false;
+            return (null, errorMessage);
         }
 
-        user = _context.Users.FirstOrDefault(candidate => candidate.Rut == rut);
+        var user = await _context.Users.FirstOrDefaultAsync(candidate => candidate.Rut == rut);
 
         if (user is null)
         {
             errorMessage = "Código QR inválido.";
-            return false;
+            return (null, errorMessage);
         }
 
-        return true;
+        return (user, string.Empty);
     }
 
     private static bool IsWithinSchedule(Reservation reservation, DateTime now)

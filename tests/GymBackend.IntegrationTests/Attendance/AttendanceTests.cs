@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+using System.Globalization;
+using Microsoft.Extensions.Time.Testing;
 using System.Net;
 using GymBackend.IntegrationTests.Infrastructure;
 using GymBackend.Services;
@@ -23,9 +24,9 @@ public sealed class AttendanceTests(GymApiFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await Api.Attendance(admin, action, "basura"), HttpStatusCode.BadRequest, "Código QR inválido.");
-        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(user.Rut, "otra-clave", DateTime.Now.Date)), HttpStatusCode.BadRequest, "Código QR inválido.");
-        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(user.Rut, factory.JwtKey, DateTime.Now.Date.AddDays(-1))), HttpStatusCode.BadRequest, "El código QR no corresponde al día de hoy.");
-        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(TestData.NextRut(), factory.JwtKey, DateTime.Now.Date)), HttpStatusCode.BadRequest, "Código QR inválido.");
+        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(user.Rut, "otra-clave", GymTime.Today())), HttpStatusCode.BadRequest, "Código QR inválido.");
+        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(user.Rut, factory.JwtKey, GymTime.Today().AddDays(-1))), HttpStatusCode.BadRequest, "El código QR no corresponde al día de hoy.");
+        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(TestData.NextRut(), factory.JwtKey, GymTime.Today())), HttpStatusCode.BadRequest, "Código QR inválido.");
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
         await Expect(await Api.Attendance(admin, action, await Api.Qr(client)), HttpStatusCode.BadRequest, "El usuario no está habilitado.");
     }
@@ -38,7 +39,7 @@ public sealed class AttendanceTests(GymApiFactory factory)
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await Api.Attendance(admin, "entry", await Api.Qr(client)), HttpStatusCode.BadRequest, "El usuario no se encuentra registrado en el horario de ingreso.");
         // También fija el rechazo cuando existe una reserva, pero está fuera de la ventana.
-        var now = DateTime.Now;
+        var now = GymTime.Now().DateTime;
         var start = now.Hour < 12 ? "20:00" : "02:00";
         var end = now.Hour < 12 ? "21:00" : "03:00";
         var day = new[] { "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado" }[(int)now.DayOfWeek];
@@ -59,9 +60,15 @@ public sealed class AttendanceTests(GymApiFactory factory)
     public async Task EntryExit_ReservaActual_PermiteFlujoYReingreso()
     {
         var user = await factory.CreateClientUserAsync();
-        using var client = user.Client;
-        using var admin = await factory.CreateAdminClientAsync();
-        var now = DateTime.Now;
+        using var realClient = user.Client;
+        using var realAdmin = await factory.CreateAdminClientAsync();
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 17, 13, 0, 0, TimeSpan.Zero));
+        using var host = factory.WithClock(clock);
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = realClient.DefaultRequestHeaders.Authorization;
+        using var admin = host.CreateClient();
+        admin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
+        var now = new DateTime(2026, 11, 17, 10, 0, 0);
         var day = new[] { "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado" }[(int)now.DayOfWeek];
         var start = now.AddMinutes(-10) < now.Date ? now.Date : now.AddMinutes(-10);
         var end = now.AddMinutes(60) >= now.Date.AddDays(1) ? now.Date.AddHours(23).AddMinutes(59) : now.AddMinutes(60);

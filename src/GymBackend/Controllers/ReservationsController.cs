@@ -1,4 +1,5 @@
 using GymBackend.Data;
+using GymBackend.Time;
 using GymBackend.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,10 +14,12 @@ namespace GymBackend.Controllers;
 public class ReservationsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IGymClock _clock;
 
-    public ReservationsController(AppDbContext context)
+    public ReservationsController(AppDbContext context, IGymClock clock)
     {
         _context = context;
+        _clock = clock;
     }
 
     [HttpGet]
@@ -109,7 +112,7 @@ public class ReservationsController : ControllerBase
             Zone = zone,
             Capacity = schedule.Capacity,
             Status = "Reservado",
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = _clock.UtcNow.UtcDateTime,
         };
 
         _context.Reservations.Add(reservation);

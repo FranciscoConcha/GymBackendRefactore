@@ -9,6 +9,8 @@ using System.Text.Json;
 using GymBackend.Data;
 using GymBackend.Models;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
@@ -27,6 +29,9 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         .Build();
 #pragma warning restore CS0618
     private readonly Dictionary<string, string?> _previousEnvironment = new();
+
+    public WebApplicationFactory<Program> WithClock(FakeTimeProvider clock) =>
+        WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock)));
 
     public string JwtKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     public string AdminRut { get; } = TestData.NextRut();
