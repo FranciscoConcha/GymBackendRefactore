@@ -1,4 +1,4 @@
-using GymBackend.DTOs;
+﻿using GymBackend.DTOs;
 using GymBackend.Domain;
 using GymBackend.Application.Reservations;
 using Microsoft.AspNetCore.Authorization;
@@ -54,6 +54,7 @@ public class ReservationsController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ReservationMessageResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -63,3 +64,4 @@ public class ReservationsController : ControllerBase
         return this.ToActionResult(await _service.CancelAsync(id, User.GetUserId(), User.IsInRole(Roles.Admin), ct));
     }
 }
+

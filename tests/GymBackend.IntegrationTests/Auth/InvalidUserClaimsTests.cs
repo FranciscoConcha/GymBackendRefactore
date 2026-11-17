@@ -17,7 +17,7 @@ public sealed class InvalidUserClaimsTests(GymApiFactory factory)
 
         await Expect(await client.GetAsync("/api/qr/my-code", Ct), HttpStatusCode.Unauthorized, message);
         await Expect(await client.PostAsJsonAsync("/api/reservations",
-            new { day = "Lunes", startTime = "08:00", endTime = "09:00" }, JsonOptions, Ct),
+            new { scheduleSlotId = 0, date = GymTime.Tomorrow() }, JsonOptions, Ct),
             HttpStatusCode.Unauthorized, message);
         await Expect(await client.GetAsync("/api/reservations/user/1", Ct), HttpStatusCode.Unauthorized, message);
     }

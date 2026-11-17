@@ -1,4 +1,4 @@
-using GymBackend.Models;
+﻿using GymBackend.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace GymBackend.Data;
@@ -9,6 +9,9 @@ public class AppDbContext : DbContext
     {
     }
 
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =>
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+
     public DbSet<User> Users => Set<User>();
 
     public DbSet<Reservation> Reservations => Set<Reservation>();
@@ -17,3 +20,4 @@ public class AppDbContext : DbContext
 
     public DbSet<Attendance> Attendances => Set<Attendance>();
 }
+

@@ -1,4 +1,4 @@
-using GymBackend.DTOs;
+﻿using GymBackend.DTOs;
 using GymBackend.Application.Schedules;
 using GymBackend.Extensions;
 using Microsoft.AspNetCore.Authorization;
@@ -20,9 +20,11 @@ public class SchedulesController : ControllerBase
 
     [HttpGet]
     [ProducesResponseType<ScheduleResponse[]>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetSchedules(CancellationToken ct = default)
+    public async Task<IActionResult> GetSchedules([FromQuery] string? date = null, CancellationToken ct = default)
     {
-        return this.ToActionResult(await _service.GetEnabledAsync(ct));
+        return this.ToActionResult(await _service.GetEnabledAsync(date, ct));
     }
 }
+

@@ -1,15 +1,15 @@
-using GymBackend.Domain;
+﻿using GymBackend.Domain;
 namespace GymBackend.Models;
 
 public class ScheduleSlot
 {
     public int Id { get; set; }
 
-    public string Day { get; set; } = string.Empty;
+    public DayOfWeek Day { get; set; }
 
-    public string StartTime { get; set; } = string.Empty;
+    public TimeOnly StartTime { get; set; }
 
-    public string EndTime { get; set; } = string.Empty;
+    public TimeOnly EndTime { get; set; }
 
     public string Zone { get; set; } = Zones.Default;
 
@@ -17,3 +17,4 @@ public class ScheduleSlot
 
     public bool Enabled { get; set; } = true;
 }
+

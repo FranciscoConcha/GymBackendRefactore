@@ -1,7 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using GymBackend.Models;
 
 namespace GymBackend.IntegrationTests.Infrastructure;
 
@@ -24,14 +23,14 @@ internal static class Api
         }
     }
 
-    internal static Task<HttpResponseMessage> Reserve(HttpClient client, ScheduleSlot slot) =>
-        client.PostAsJsonAsync("/api/reservations", new { slot.Day, slot.StartTime, slot.EndTime, slot.Zone }, JsonOptions, Ct);
+    internal static Task<HttpResponseMessage> Reserve(HttpClient client, int slotId, DateOnly date) =>
+        client.PostAsJsonAsync("/api/reservations", new { scheduleSlotId = slotId, date }, JsonOptions, Ct);
 
     internal static Task<HttpResponseMessage> Status(HttpClient client, int id, bool enabled) =>
         client.PatchAsJsonAsync($"/api/auth/users/{id}/status", new { enabled }, JsonOptions, Ct);
 
-    internal static async Task<JsonElement> Reservation(HttpClient client, ScheduleSlot slot) =>
-        (await Expect(await Reserve(client, slot), HttpStatusCode.OK, "Reserva creada correctamente.")).GetProperty("reservation");
+    internal static async Task<JsonElement> Reservation(HttpClient client, int slotId, DateOnly date) =>
+        (await Expect(await Reserve(client, slotId, date), HttpStatusCode.OK, "Reserva creada correctamente.")).GetProperty("reservation");
 
     internal static async Task<string> Qr(HttpClient client) =>
         (await Expect(await client.GetAsync("/api/qr/my-code", Ct), HttpStatusCode.OK)).GetProperty("token").GetString()!;

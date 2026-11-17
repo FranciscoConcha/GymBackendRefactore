@@ -1,19 +1,22 @@
-using GymBackend.Application.Common;
+﻿using GymBackend.Application.Common;
 using GymBackend.DTOs;
 using GymBackend.Data;
 using GymBackend.Domain;
 using GymBackend.Models;
 using GymBackend.Time;
+using GymBackend.Options;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 
 namespace GymBackend.Application.Reservations;
 
-public sealed class ReservationService(AppDbContext context, IGymClock clock) : IReservationService
+public sealed class ReservationService(AppDbContext context, IGymClock clock, IOptions<ReservationOptions> options) : IReservationService
 {
     public async Task<ServiceResult<ReservationResponse[]>> GetAllAsync(CancellationToken ct = default)
     {
-        var reservations = await context.Reservations
-            .OrderByDescending(reservation => reservation.CreatedAt)
+        var reservations = await context.Reservations.Include(r => r.User).Include(r => r.ScheduleSlot)
+            .OrderByDescending(reservation => reservation.Date)
+            .ThenByDescending(reservation => reservation.ScheduleSlot.StartTime)
             .ToListAsync(ct);
 
         return ServiceResult<ReservationResponse[]>.Success(reservations.Select(ReservationResponse.From).ToArray());
@@ -34,9 +37,10 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock) : 
             }
         }
 
-        var reservations = await context.Reservations
+        var reservations = await context.Reservations.Include(r => r.User).Include(r => r.ScheduleSlot)
             .Where(reservation => reservation.UserId == requestedUserId)
-            .OrderByDescending(reservation => reservation.CreatedAt)
+            .OrderByDescending(reservation => reservation.Date)
+            .ThenByDescending(reservation => reservation.ScheduleSlot.StartTime)
             .ToListAsync(ct);
 
         return ServiceResult<ReservationResponse[]>.Success(reservations.Select(ReservationResponse.From).ToArray());
@@ -44,23 +48,17 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock) : 
 
     public async Task<ServiceResult<ReservationMessageResponse>> CreateAsync(int userId, CreateReservationRequest request, CancellationToken ct = default)
     {
-        var day = request.Day.Trim();
-        var startTime = request.StartTime.Trim();
-        var endTime = request.EndTime.Trim();
-        var zone = request.Zone.Trim();
-
-        var schedule = await context.ScheduleSlots.FirstOrDefaultAsync(slot =>
-            slot.Day == day &&
-            slot.StartTime == startTime &&
-            slot.EndTime == endTime &&
-            slot.Zone == zone &&
-            slot.Enabled, ct);
-
+        var schedule = await context.ScheduleSlots.FirstOrDefaultAsync(slot => slot.Id == request.ScheduleSlotId && slot.Enabled, ct);
         if (schedule is null)
-        {
             return ServiceError.Validation("El bloque seleccionado no está disponible.");
-        }
-
+        if (request.Date.DayOfWeek != schedule.Day)
+            return ServiceError.Validation("La fecha no corresponde al día del bloque.");
+        var now = clock.LocalNow;
+        var today = DateOnly.FromDateTime(now.DateTime);
+        if (request.Date < today || (request.Date == today && TimeOnly.FromDateTime(now.DateTime) >= schedule.StartTime))
+            return ServiceError.Validation("El bloque ya comenzó o la fecha ya pasó.");
+        if (request.Date > BookingWindow.LastAllowedDate(today, options.Value.MaxDaysAhead, options.Value.HorizonUnit))
+            return ServiceError.Validation("La fecha excede el plazo máximo de reserva.");
         var user = await context.Users.FindAsync(new object[] { userId }, ct);
 
         if (user is null)
@@ -69,11 +67,8 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock) : 
         }
 
         var reservedCount = await context.Reservations.CountAsync(reservation =>
-            reservation.Day == day &&
-            reservation.StartTime == startTime &&
-            reservation.EndTime == endTime &&
-            reservation.Zone == zone &&
-            reservation.Status == ReservationStatuses.Reserved, ct);
+            reservation.ScheduleSlotId == schedule.Id && reservation.Date == request.Date &&
+            reservation.Status == ReservationStatus.Reserved, ct);
 
         if (!ReservationRules.HasAvailableCapacity(reservedCount, schedule.Capacity))
         {
@@ -82,11 +77,8 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock) : 
 
         var alreadyReserved = await context.Reservations.AnyAsync(reservation =>
             reservation.UserId == userId &&
-            reservation.Day == day &&
-            reservation.StartTime == startTime &&
-            reservation.EndTime == endTime &&
-            reservation.Zone == zone &&
-            reservation.Status == ReservationStatuses.Reserved, ct);
+            reservation.ScheduleSlotId == schedule.Id && reservation.Date == request.Date &&
+            reservation.Status == ReservationStatus.Reserved, ct);
 
         if (alreadyReserved)
         {
@@ -96,13 +88,11 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock) : 
         var reservation = new Reservation
         {
             UserId = user.Id,
-            UserName = user.Name,
-            Day = day,
-            StartTime = startTime,
-            EndTime = endTime,
-            Zone = zone,
-            Capacity = schedule.Capacity,
-            Status = ReservationStatuses.Reserved,
+            User = user,
+            ScheduleSlotId = schedule.Id,
+            ScheduleSlot = schedule,
+            Date = request.Date,
+            Status = ReservationStatus.Reserved,
             CreatedAt = clock.UtcNow.UtcDateTime,
         };
 
@@ -114,7 +104,7 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock) : 
 
     public async Task<ServiceResult<ReservationMessageResponse>> CancelAsync(int id, int? currentUserId, bool isAdmin, CancellationToken ct = default)
     {
-        var reservation = await context.Reservations.FindAsync(new object[] { id }, ct);
+        var reservation = await context.Reservations.Include(r => r.User).Include(r => r.ScheduleSlot).FirstOrDefaultAsync(r => r.Id == id, ct);
 
         if (reservation is null)
         {
@@ -134,9 +124,17 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock) : 
             }
         }
 
-        reservation.Status = ReservationStatuses.Cancelled;
+        if (reservation.Status != ReservationStatus.Reserved)
+            return ServiceError.Validation("Solo se pueden cancelar reservas activas.");
+        var now = clock.LocalNow;
+        var today = DateOnly.FromDateTime(now.DateTime);
+        if (!isAdmin && (reservation.Date < today || (reservation.Date == today && TimeOnly.FromDateTime(now.DateTime) >= reservation.ScheduleSlot.StartTime)))
+            return ServiceError.Validation("La reserva ya no se puede cancelar porque el bloque comenzó.");
+
+        reservation.Status = ReservationStatus.Cancelled;
         await context.SaveChangesAsync(ct);
 
         return ServiceResult<ReservationMessageResponse>.Success(new ReservationMessageResponse("Reserva cancelada correctamente.", ReservationResponse.From(reservation)));
     }
 }
+

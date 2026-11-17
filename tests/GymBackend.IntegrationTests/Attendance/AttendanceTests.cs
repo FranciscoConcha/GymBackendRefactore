@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 using System.Globalization;
 using Microsoft.Extensions.Time.Testing;
 using System.Net;
@@ -42,8 +43,9 @@ public sealed class AttendanceTests(GymApiFactory factory)
         var now = GymTime.Now().DateTime;
         var start = now.Hour < 12 ? "20:00" : "02:00";
         var end = now.Hour < 12 ? "21:00" : "03:00";
-        var day = new[] { "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado" }[(int)now.DayOfWeek];
-        await Reservation(client, await factory.CreateSlotAsync(day, start, end));
+        var day = now.DayOfWeek;
+        var slot = await factory.CreateSlotAsync(day, TimeOnly.Parse(start, CultureInfo.InvariantCulture), TimeOnly.Parse(end, CultureInfo.InvariantCulture));
+        await factory.InsertReservationAsync(user.UserId, slot.Id, DateOnly.FromDateTime(now));
         await Expect(await Api.Attendance(admin, "entry", await Api.Qr(client)), HttpStatusCode.BadRequest, "El usuario no se encuentra registrado en el horario de ingreso.");
     }
 
@@ -69,11 +71,11 @@ public sealed class AttendanceTests(GymApiFactory factory)
         using var admin = host.CreateClient();
         admin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
         var now = new DateTime(2026, 11, 17, 10, 0, 0);
-        var day = new[] { "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado" }[(int)now.DayOfWeek];
+        var day = now.DayOfWeek;
         var start = now.AddMinutes(-10) < now.Date ? now.Date : now.AddMinutes(-10);
         var end = now.AddMinutes(60) >= now.Date.AddDays(1) ? now.Date.AddHours(23).AddMinutes(59) : now.AddMinutes(60);
-        var slot = await factory.CreateSlotAsync(day, start.ToString("HH:mm", CultureInfo.InvariantCulture), end.ToString("HH:mm", CultureInfo.InvariantCulture));
-        var reservationId = (await Reservation(client, slot)).GetProperty("id").GetInt32();
+        var slot = await factory.CreateSlotAsync(day, TimeOnly.FromDateTime(start), TimeOnly.FromDateTime(end));
+        var reservationId = (await factory.InsertReservationAsync(user.UserId, slot.Id, new DateOnly(2026, 11, 17))).Id;
         var token = await Api.Qr(client);
         var entry = await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.OK, "Entrada registrada correctamente.");
         var attendanceId = entry.GetProperty("attendance").GetProperty("id").GetInt32();
@@ -83,7 +85,7 @@ public sealed class AttendanceTests(GymApiFactory factory)
             Assert.True(attendance.CheckedIn);
             Assert.Equal(user.UserId, attendance.UserId);
             Assert.Equal(reservationId, attendance.ReservationId);
-            Assert.Equal("Asistió", (await db.Reservations.SingleAsync(r => r.Id == reservationId, Ct)).Status);
+            Assert.Equal(ReservationStatus.Attended, (await db.Reservations.SingleAsync(r => r.Id == reservationId, Ct)).Status);
         });
         await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.BadRequest, "Usuario ya registra una entrada en el día.");
         var exit = await Expect(await Api.Attendance(admin, "exit", token), HttpStatusCode.OK, "Salida registrada correctamente.");
