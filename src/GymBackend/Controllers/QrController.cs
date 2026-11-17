@@ -1,3 +1,4 @@
+using GymBackend.DTOs;
 using GymBackend.Data;
 using GymBackend.Time;
 using GymBackend.Options;
@@ -27,18 +28,20 @@ public class QrController : ControllerBase
     }
 
     [HttpGet("my-code")]
+    [ProducesResponseType<QrCodeResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetMyCode()
     {
         var userId = User.GetUserId();
         if (userId is null)
         {
-            return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+            return Unauthorized(new MessageResponse("La sesión no contiene un usuario válido."));
         }
         var user = await _context.Users.FindAsync(userId.Value);
 
         if (user is null)
         {
-            return Unauthorized(new { message = "La sesión no corresponde a un usuario válido." });
+            return Unauthorized(new MessageResponse("La sesión no corresponde a un usuario válido."));
         }
 
         var signingKey = _jwtOptions.Value.Key
@@ -47,14 +50,7 @@ public class QrController : ControllerBase
         var today = _clock.Today;
         var token = QrTokenService.GenerateToken(user.Rut, signingKey, today.ToDateTime(TimeOnly.MinValue));
 
-        return Ok(new
-        {
-            rut = user.Rut,
-            name = user.Name,
-            date = today.ToString("yyyy-MM-dd"),
-            token,
-            validFrom = _clock.StartOfDay(today),
-            validUntil = _clock.StartOfDay(today.AddDays(1)).AddMinutes(-1),
-        });
+        return Ok(new QrCodeResponse(user.Rut, user.Name, today.ToString("yyyy-MM-dd"), token,
+            _clock.StartOfDay(today), _clock.StartOfDay(today.AddDays(1)).AddMinutes(-1)));
     }
 }

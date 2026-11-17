@@ -12,6 +12,13 @@ namespace GymBackend.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    public static IServiceCollection AddGymErrors(this IServiceCollection services)
+    {
+        services.AddProblemDetails();
+        services.AddExceptionHandler<GymBackend.Errors.GlobalExceptionHandler>();
+        return services;
+    }
+
     public static IServiceCollection AddGymOptions(this IServiceCollection services)
     {
         services.AddOptions<GymOptions>()

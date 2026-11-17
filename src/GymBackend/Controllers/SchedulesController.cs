@@ -1,3 +1,4 @@
+using GymBackend.DTOs;
 using GymBackend.Domain;
 using GymBackend.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -19,6 +20,8 @@ public class SchedulesController : ControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType<ScheduleResponse[]>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetSchedules()
     {
         var schedules = await _context.ScheduleSlots
@@ -30,20 +33,11 @@ public class SchedulesController : ControllerBase
             .Where(reservation => reservation.Status == ReservationStatuses.Reserved)
             .ToListAsync();
 
-        var result = schedules.Select(schedule => new
-        {
-            schedule.Id,
-            schedule.Day,
-            schedule.StartTime,
-            schedule.EndTime,
-            schedule.Zone,
-            schedule.Capacity,
-            ReservedCount = activeReservations.Count(reservation =>
+        var result = schedules.Select(schedule => ScheduleResponse.From(schedule, activeReservations.Count(reservation =>
                 reservation.Day == schedule.Day &&
                 reservation.StartTime == schedule.StartTime &&
                 reservation.EndTime == schedule.EndTime &&
-                reservation.Zone == schedule.Zone),
-        });
+                reservation.Zone == schedule.Zone)));
 
         return Ok(result);
     }

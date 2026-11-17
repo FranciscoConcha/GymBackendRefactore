@@ -31,6 +31,10 @@ public class AuthController : ControllerBase
 
     [HttpPost("register")]
     [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<UserMessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Register(RegisterRequest request)
     {
         var rut = request.Rut.Trim();
@@ -40,27 +44,27 @@ public class AuthController : ControllerBase
 
         if (!IsValidRutFormat(rut))
         {
-            return BadRequest(new { message = "El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion." });
+            return BadRequest(new MessageResponse("El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion."));
         }
 
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(request.Password))
         {
-            return BadRequest(new { message = "Todos los campos son obligatorios." });
+            return BadRequest(new MessageResponse("Todos los campos son obligatorios."));
         }
 
         if (userType.Equals(UserTypes.Administrator, StringComparison.OrdinalIgnoreCase))
         {
-            return BadRequest(new { message = "Los administradores deben crearse por un proceso controlado." });
+            return BadRequest(new MessageResponse("Los administradores deben crearse por un proceso controlado."));
         }
 
         if (await _context.Users.AnyAsync(user => user.Rut == rut))
         {
-            return BadRequest(new { message = "El RUT ya está registrado en el sistema." });
+            return BadRequest(new MessageResponse("El RUT ya está registrado en el sistema."));
         }
 
         if (await _context.Users.AnyAsync(user => user.Email.ToLower() == email))
         {
-            return BadRequest(new { message = "El correo ya está registrado en el sistema." });
+            return BadRequest(new MessageResponse("El correo ya está registrado en el sistema."));
         }
 
         var user = new User
@@ -77,26 +81,25 @@ public class AuthController : ControllerBase
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = "Usuario registrado correctamente.",
-            user = ToUserResponse(user),
-        });
+        return Ok(new UserMessageResponse("Usuario registrado correctamente.", UserResponse.From(user)));
     }
 
     [HttpPost("login")]
+    [ProducesResponseType<AuthResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login(LoginRequest request)
     {
         var rut = request.Rut.Trim();
 
         if (!IsValidRutFormat(rut))
         {
-            return BadRequest(new { message = "El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion." });
+            return BadRequest(new MessageResponse("El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion."));
         }
 
         if (string.IsNullOrWhiteSpace(request.Password))
         {
-            return BadRequest(new { message = "La contraseña es obligatoria." });
+            return BadRequest(new MessageResponse("La contraseña es obligatoria."));
         }
 
         var passwordHash = HashPassword(request.Password);
@@ -105,20 +108,23 @@ public class AuthController : ControllerBase
 
         if (user is null || user.Role == Roles.Admin)
         {
-            return Unauthorized(new { message = "Credenciales de usuario incorrectas." });
+            return Unauthorized(new MessageResponse("Credenciales de usuario incorrectas."));
         }
 
         return Ok(CreateAuthResponse(user, "Login correcto."));
     }
 
     [HttpPost("admin-login")]
+    [ProducesResponseType<AuthResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> AdminLogin(AdminLoginRequest request)
     {
         var username = request.Username.Trim().ToLowerInvariant();
 
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(request.Password))
         {
-            return BadRequest(new { message = "El usuario y la contraseña son obligatorios." });
+            return BadRequest(new MessageResponse("El usuario y la contraseña son obligatorios."));
         }
 
         var passwordHash = HashPassword(request.Password);
@@ -129,7 +135,7 @@ public class AuthController : ControllerBase
 
         if (admin is null)
         {
-            return Unauthorized(new { message = "Credenciales de administrador incorrectas." });
+            return Unauthorized(new MessageResponse("Credenciales de administrador incorrectas."));
         }
 
         return Ok(CreateAuthResponse(admin, "Login de administrador correcto."));
@@ -137,43 +143,47 @@ public class AuthController : ControllerBase
 
     [HttpGet("users")]
     [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<UserResponse[]>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetUsers()
     {
         var users = (await _context.Users
             .OrderBy(user => user.Name)
             .ToListAsync())
-            .Select(ToUserResponse);
+            .Select(UserResponse.From);
 
         return Ok(users);
     }
 
     [HttpPatch("users/{id}/status")]
     [Authorize(Roles = Roles.Admin)]
+    [ProducesResponseType<UserMessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SetUserStatus(int id, SetUserStatusRequest request)
     {
         var user = await _context.Users.FindAsync(id);
 
         if (user is null)
         {
-            return NotFound(new { message = "Usuario no encontrado." });
+            return NotFound(new MessageResponse("Usuario no encontrado."));
         }
 
         if (user.Role == Roles.Admin)
         {
-            return BadRequest(new { message = "No se puede deshabilitar a un administrador." });
+            return BadRequest(new MessageResponse("No se puede deshabilitar a un administrador."));
         }
 
         user.Enabled = request.Enabled;
         await _context.SaveChangesAsync();
 
-        return Ok(new
-        {
-            message = user.Enabled ? "Usuario habilitado correctamente." : "Usuario deshabilitado correctamente.",
-            user = ToUserResponse(user),
-        });
+        return Ok(new UserMessageResponse(user.Enabled ? "Usuario habilitado correctamente." : "Usuario deshabilitado correctamente.", UserResponse.From(user)));
     }
 
-    private object CreateAuthResponse(User user, string message)
+    private AuthResponse CreateAuthResponse(User user, string message)
     {
         var key = _jwtOptions.Value.Key
             ?? throw new InvalidOperationException("Jwt:Key no está configurada.");
@@ -196,25 +206,8 @@ public class AuthController : ControllerBase
             expires: DateTime.UtcNow.AddHours(8),
             signingCredentials: credentials);
 
-        return new
-        {
-            message,
-            token = new JwtSecurityTokenHandler().WriteToken(token),
-            user = ToUserResponse(user),
-        };
+        return new AuthResponse(message, new JwtSecurityTokenHandler().WriteToken(token), UserResponse.From(user));
     }
-
-    private static object ToUserResponse(User user) => new
-    {
-        user.Id,
-        user.Rut,
-        user.Name,
-        user.Email,
-        user.Username,
-        user.UserType,
-        user.Role,
-        user.Enabled,
-    };
 
     private static bool IsValidRutFormat(string rut)
     {
@@ -229,9 +222,4 @@ public class AuthController : ControllerBase
 
         return Convert.ToBase64String(hash);
     }
-}
-
-public class SetUserStatusRequest
-{
-    public bool Enabled { get; set; }
 }
