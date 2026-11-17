@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddGymOptions();
+builder.Services.AddGymTime();
 builder.Services.AddGymPersistence(builder.Configuration);
 builder.Services.AddGymAuthentication();
 builder.Services.AddEndpointsApiExplorer();

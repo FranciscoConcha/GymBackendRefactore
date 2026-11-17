@@ -1,4 +1,6 @@
 using GymBackend.Data;
+using GymBackend.Time;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using GymBackend.Options;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +14,11 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddGymOptions(this IServiceCollection services)
     {
+        services.AddOptions<GymOptions>()
+            .BindConfiguration(GymOptions.SectionName)
+            .Validate(o => TimeZoneInfo.TryFindSystemTimeZoneById(o.TimeZone, out _),
+                "Configure Gym:TimeZone con un identificador IANA válido (p. ej. America/Santiago).")
+            .ValidateOnStart();
         services.AddOptions<JwtOptions>()
             .BindConfiguration(JwtOptions.SectionName)
             .Validate(o => !string.IsNullOrWhiteSpace(o.Key) && o.Key.Length >= 32,
@@ -20,6 +27,13 @@ public static class ServiceCollectionExtensions
         services.AddOptions<CorsSettings>().BindConfiguration(CorsSettings.SectionName).ValidateOnStart();
         services.AddOptions<DatabaseOptions>().BindConfiguration(DatabaseOptions.SectionName).ValidateOnStart();
         services.AddOptions<BootstrapOptions>().BindConfiguration(BootstrapOptions.SectionName).ValidateOnStart();
+        return services;
+    }
+
+    public static IServiceCollection AddGymTime(this IServiceCollection services)
+    {
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IGymClock, GymClock>();
         return services;
     }
 
