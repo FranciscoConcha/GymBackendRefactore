@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using GymBackend.Domain;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.PostgreSql;
 
@@ -32,6 +34,13 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     public WebApplicationFactory<Program> WithClock(FakeTimeProvider clock) =>
         WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock)));
+
+    public WebApplicationFactory<Program> WithClockAndSettings(FakeTimeProvider clock, IDictionary<string, string?> settings) =>
+        WithWebHostBuilder(b =>
+        {
+            b.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(settings));
+            b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock));
+        });
 
     public string JwtKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     public string AdminRut { get; } = TestData.NextRut();
@@ -170,7 +179,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         return await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
     }
 
-    public Task<ScheduleSlot> CreateSlotAsync(string day, string start, string end, int capacity = 20) =>
+    public Task<ScheduleSlot> CreateSlotAsync(DayOfWeek day, TimeOnly start, TimeOnly end, int capacity = 20) =>
         WithDbAsync(async db =>
         {
             var slot = new ScheduleSlot
@@ -181,6 +190,19 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             db.ScheduleSlots.Add(slot);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             return slot;
+        });
+
+    public Task<Reservation> InsertReservationAsync(int userId, int slotId, DateOnly date,
+        ReservationStatus status = ReservationStatus.Reserved) => WithDbAsync(async db =>
+        {
+            var reservation = new Reservation
+            {
+                UserId = userId, ScheduleSlotId = slotId, Date = date,
+                Status = status, CreatedAt = DateTime.UtcNow,
+            };
+            db.Reservations.Add(reservation);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return reservation;
         });
 
     private void SetEnvironment(string name, string value)

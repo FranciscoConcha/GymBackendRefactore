@@ -1,4 +1,5 @@
-﻿using System.Net;
+using GymBackend.Domain;
+using System.Net;
 using GymBackend.IntegrationTests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
@@ -10,14 +11,15 @@ public sealed class ReservationTests(GymApiFactory factory)
     [Fact]
     public async Task Get_Permisos_ComportamientoActual()
     {
+        var date = GymTime.Tomorrow();
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         var other = await factory.CreateClientUserAsync();
         using var otherClient = other.Client;
         using var admin = await factory.CreateAdminClientAsync();
         using var anonymous = factory.CreateClient();
-        var slot = await factory.CreateSlotAsync("Lunes", "08:00", "09:00");
-        var reservation = await Reservation(client, slot);
+        var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
+        var reservation = await Reservation(client, slot.Id, date);
         using var denied = await client.GetAsync("/api/reservations", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         var all = await Expect(await admin.GetAsync("/api/reservations", Ct), HttpStatusCode.OK);
@@ -37,64 +39,68 @@ public sealed class ReservationTests(GymApiFactory factory)
     [Fact]
     public async Task Post_ValidacionesYDuplicado_ComportamientoActual()
     {
-        var slot = await factory.CreateSlotAsync("Lunes", "08:00", "09:00", 7);
+        var date = GymTime.Tomorrow();
+        var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0), 7);
         using var anonymous = factory.CreateClient();
-        using var denied = await Reserve(anonymous, slot);
+        using var denied = await Reserve(anonymous, slot.Id, date);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         var missing = new GymBackend.Models.ScheduleSlot { Day = slot.Day, StartTime = slot.StartTime, EndTime = slot.EndTime, Zone = Guid.NewGuid().ToString() };
-        await Expect(await Reserve(client, missing), HttpStatusCode.BadRequest, "El bloque seleccionado no está disponible.");
+        await Expect(await Reserve(client, missing.Id, date), HttpStatusCode.BadRequest, "El bloque seleccionado no está disponible.");
         using var ghost = factory.CreateClientWithToken(factory.CreateJwt(999999, "Cliente", TestData.NextRut()));
-        await Expect(await Reserve(ghost, slot), HttpStatusCode.Unauthorized, "La sesión no corresponde a un usuario válido.");
-        var result = await Reservation(client, slot);
+        await Expect(await Reserve(ghost, slot.Id, date), HttpStatusCode.Unauthorized, "La sesión no corresponde a un usuario válido.");
+        var result = await Reservation(client, slot.Id, date);
         Assert.Equal("Reservado", result.GetProperty("status").GetString());
         Assert.Equal(7, result.GetProperty("capacity").GetInt32());
         Assert.Equal($"Test {user.Rut}", result.GetProperty("userName").GetString());
-        await Expect(await Reserve(client, slot), HttpStatusCode.BadRequest, "Ya tienes una reserva para este bloque.");
+        await Expect(await Reserve(client, slot.Id, date), HttpStatusCode.BadRequest, "Ya tienes una reserva para este bloque.");
     }
 
     [Fact]
     public async Task Post_CupoLlenoYCancelacion_LiberaCupo()
     {
-        var slot = await factory.CreateSlotAsync("Martes", "08:00", "09:00", 2);
+        var date = GymTime.Tomorrow();
+        var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0), 2);
         var first = await factory.CreateClientUserAsync();
         using var one = first.Client;
         var second = await factory.CreateClientUserAsync();
         using var two = second.Client;
         var third = await factory.CreateClientUserAsync();
         using var three = third.Client;
-        var reservation = await Reservation(one, slot);
-        await Reservation(two, slot);
-        await Expect(await Reserve(three, slot), HttpStatusCode.BadRequest, "No quedan cupos disponibles para este bloque.");
+        var reservation = await Reservation(one, slot.Id, date);
+        await Reservation(two, slot.Id, date);
+        await Expect(await Reserve(three, slot.Id, date), HttpStatusCode.BadRequest, "No quedan cupos disponibles para este bloque.");
         await Expect(await one.DeleteAsync($"/api/reservations/{reservation.GetProperty("id").GetInt32()}", Ct), HttpStatusCode.OK);
-        await Reservation(three, slot);
+        await Reservation(three, slot.Id, date);
     }
 
     [Fact]
     [Trait("Category", "LegacyBehavior")]
     public async Task Post_UsuarioDeshabilitado_Ok()
     {
+        var date = GymTime.Tomorrow();
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
-        var slot = await factory.CreateSlotAsync("Lunes", "08:00", "09:00");
+        var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
         // Comportamiento actual (D2); cambia en F5.
-        await Reservation(client, slot);
+        await Reservation(client, slot.Id, date);
     }
 
     [Fact]
     public async Task Delete_PermisosYEstado_ComportamientoActual()
     {
+        var date = GymTime.Tomorrow();
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         var other = await factory.CreateClientUserAsync();
         using var otherClient = other.Client;
         using var admin = await factory.CreateAdminClientAsync();
         using var anonymous = factory.CreateClient();
-        var slot = await factory.CreateSlotAsync("Lunes", "08:00", "09:00");
-        var id = (await Reservation(client, slot)).GetProperty("id").GetInt32();
+        var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
+        var id = (await Reservation(client, slot.Id, date)).GetProperty("id").GetInt32();
         using var denied = await anonymous.DeleteAsync($"/api/reservations/{id}", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         await Expect(await client.DeleteAsync($"/api/reservations/{int.MaxValue}", Ct), HttpStatusCode.NotFound, "Reserva no encontrada.");
@@ -102,27 +108,25 @@ public sealed class ReservationTests(GymApiFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         var cancelled = await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
         Assert.Equal("Cancelado", cancelled.GetProperty("reservation").GetProperty("status").GetString());
-        var nextId = (await Reservation(client, slot)).GetProperty("id").GetInt32();
+        var nextId = (await Reservation(client, slot.Id, date)).GetProperty("id").GetInt32();
         var byAdmin = await Expect(await admin.DeleteAsync($"/api/reservations/{nextId}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
         Assert.Equal("Cancelado", byAdmin.GetProperty("reservation").GetProperty("status").GetString());
     }
 
     [Fact]
-    [Trait("Category", "LegacyBehavior")]
-    public async Task Delete_Asistio_Ok()
+    public async Task Delete_Asistio_Rechazado()
     {
+        var date = GymTime.Tomorrow();
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
-        var slot = await factory.CreateSlotAsync("Lunes", "08:00", "09:00");
-        var id = (await Reservation(client, slot)).GetProperty("id").GetInt32();
+        var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
+        var id = (await Reservation(client, slot.Id, date)).GetProperty("id").GetInt32();
         await factory.WithDbAsync(async db =>
         {
             var reservation = await db.Reservations.SingleAsync(r => r.Id == id, Ct);
-            reservation.Status = "Asistió";
+            reservation.Status = ReservationStatus.Attended;
             await db.SaveChangesAsync(Ct);
         });
-        // Comportamiento actual (D13); cambia en F5.
-        var json = await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
-        Assert.Equal("Cancelado", json.GetProperty("reservation").GetProperty("status").GetString());
+        await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.BadRequest, "Solo se pueden cancelar reservas activas.");
     }
 }

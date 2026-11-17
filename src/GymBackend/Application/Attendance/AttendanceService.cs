@@ -1,4 +1,4 @@
-using GymBackend.Application.Common;
+﻿using GymBackend.Application.Common;
 using GymBackend.Application.Qr;
 using GymBackend.Data;
 using GymBackend.Domain;
@@ -30,7 +30,7 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
             return ServiceError.Validation("El usuario no está habilitado.");
         }
 
-        var todayKey = now.DateTime.Date.ToString("yyyy-MM-dd");
+        var todayKey = _clock.Today;
 
         var attendance = await _context.Attendances.FirstOrDefaultAsync(candidate =>
             candidate.UserId == user.Id && candidate.Date == todayKey, ct);
@@ -44,24 +44,24 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
 
         if (attendance is null)
         {
-            var todayName = GymWeekdays.Name(now.DateTime.DayOfWeek);
 
-            var todaysReservations = await _context.Reservations
+
+            var todaysReservations = await _context.Reservations.Include(r => r.ScheduleSlot)
                 .Where(reservation =>
                     reservation.UserId == user.Id &&
-                    reservation.Day == todayName &&
-                    reservation.Status == ReservationStatuses.Reserved)
+                    reservation.Date == todayKey &&
+                    reservation.Status == ReservationStatus.Reserved)
                 .ToListAsync(ct);
 
-            matchedReservation = todaysReservations.FirstOrDefault(reservation => ScheduleWindow.IsWithin(reservation.StartTime, reservation.EndTime, now.DateTime.TimeOfDay));
+            matchedReservation = todaysReservations.FirstOrDefault(reservation => ScheduleWindow.IsWithin(reservation.ScheduleSlot.StartTime, reservation.ScheduleSlot.EndTime, TimeOnly.FromDateTime(now.DateTime)));
         }
         else
         {
             matchedReservation = attendance.ReservationId.HasValue
-                ? await _context.Reservations.FindAsync(new object[] { attendance.ReservationId.Value }, ct)
+                ? await _context.Reservations.Include(r => r.ScheduleSlot).FirstOrDefaultAsync(r => r.Id == attendance.ReservationId.Value && r.Date == todayKey, ct)
                 : null;
 
-            if (matchedReservation is not null && !ScheduleWindow.IsWithin(matchedReservation.StartTime, matchedReservation.EndTime, now.DateTime.TimeOfDay))
+            if (matchedReservation is not null && !ScheduleWindow.IsWithin(matchedReservation.ScheduleSlot.StartTime, matchedReservation.ScheduleSlot.EndTime, TimeOnly.FromDateTime(now.DateTime)))
             {
                 matchedReservation = null;
             }
@@ -77,8 +77,7 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
             attendance = new GymBackend.Models.Attendance
             {
                 UserId = user.Id,
-                Rut = user.Rut,
-                UserName = user.Name,
+                User = user,
                 Date = todayKey,
                 EntryTime = _clock.UtcNow.UtcDateTime,
                 EntryAdminRut = adminRut,
@@ -87,7 +86,7 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
             };
 
             _context.Attendances.Add(attendance);
-            matchedReservation.Status = ReservationStatuses.Attended;
+            matchedReservation.Status = ReservationStatus.Attended;
         }
         else
         {
@@ -114,7 +113,7 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
             return ServiceError.Validation("El usuario no está habilitado.");
         }
 
-        var todayKey = now.DateTime.Date.ToString("yyyy-MM-dd");
+        var todayKey = _clock.Today;
 
         var attendance = await _context.Attendances.FirstOrDefaultAsync(candidate =>
             candidate.UserId == user.Id && candidate.Date == todayKey, ct);
@@ -152,3 +151,4 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
     }
 
 }
+

@@ -13,18 +13,25 @@ public sealed class ScheduleWindowTests
     public void IsWithin_IncludesExactToleranceBoundaries(int hour, int minute, bool expected)
     {
         Assert.Equal(TimeSpan.FromMinutes(15), ScheduleWindow.Tolerance);
-        Assert.Equal(expected, ScheduleWindow.IsWithin("10:00", "11:00", new TimeSpan(hour, minute, 0)));
+        Assert.Equal(expected, ScheduleWindow.IsWithin(new TimeOnly(10, 0), new TimeOnly(11, 0), new TimeOnly(hour, minute)));
     }
 
     [Theory]
-    [InlineData("invalid", "11:00")]
-    [InlineData("10:00", "invalid")]
-    [InlineData("10:00:00", "11:00")]
-    [InlineData("10:00", "11:00:00")]
-    [InlineData("", "11:00")]
-    [InlineData("10:00", "")]
-    public void IsWithin_InvalidFormat_ReturnsFalse(string start, string end)
+    [InlineData(9, 44, 59, false)]
+    [InlineData(9, 45, 0, true)]
+    [InlineData(11, 15, 0, true)]
+    [InlineData(11, 15, 1, false)]
+    public void IsWithin_RespectsSeconds(int hour, int minute, int second, bool expected)
     {
-        Assert.False(ScheduleWindow.IsWithin(start, end, new TimeSpan(10, 30, 0)));
+        Assert.Equal(expected, ScheduleWindow.IsWithin(new TimeOnly(10, 0), new TimeOnly(11, 0), new TimeOnly(hour, minute, second)));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0, 30, 0, 0, true)]
+    [InlineData(23, 0, 23, 59, 23, 59, true)]
+    [InlineData(23, 0, 23, 59, 0, 0, false)]
+    public void IsWithin_DoesNotWrapToAnotherDate(int startHour, int startMinute, int endHour, int endMinute, int hour, int minute, bool expected)
+    {
+        Assert.Equal(expected, ScheduleWindow.IsWithin(new TimeOnly(startHour, startMinute), new TimeOnly(endHour, endMinute), new TimeOnly(hour, minute)));
     }
 }

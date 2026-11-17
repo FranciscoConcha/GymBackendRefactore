@@ -1,4 +1,4 @@
-using GymBackend.Data;
+﻿using GymBackend.Data;
 using GymBackend.Time;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using GymBackend.Options;
@@ -21,6 +21,11 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddGymOptions(this IServiceCollection services)
     {
+        services.AddOptions<ReservationOptions>()
+            .BindConfiguration(ReservationOptions.SectionName)
+            .Validate(o => o.MaxDaysAhead is >= 0 and <= 60, "Reservations:MaxDaysAhead debe estar entre 0 y 60.")
+            .Validate(o => Enum.IsDefined(o.HorizonUnit), "Reservations:HorizonUnit inválido.")
+            .ValidateOnStart();
         services.AddOptions<GymOptions>()
             .BindConfiguration(GymOptions.SectionName)
             .Validate(o => TimeZoneInfo.TryFindSystemTimeZoneById(o.TimeZone, out _),
@@ -85,3 +90,4 @@ public static class ServiceCollectionExtensions
         return services;
     }
 }
+

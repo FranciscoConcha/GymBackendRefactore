@@ -10,7 +10,7 @@ namespace GymBackend.IntegrationTests.Contracts;
 public sealed class ResponseContractTests(GymApiFactory factory)
 {
     private const string UserShape = "id:n rut:s name:s email:s username:s userType:s role:s enabled:b";
-    private const string ReservationShape = "id:n userId:n userName:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s";
+    private const string ReservationShape = "id:n userId:n userName:s scheduleSlotId:n date:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s";
     private const string AttendanceShape = "id:n userId:n rut:s userName:s date:s entryTime:s? entryAdminRut:s? exitTime:s? exitAdminRut:s? reservationId:n? checkedIn:b";
 
     [Fact]
@@ -40,7 +40,7 @@ public sealed class ResponseContractTests(GymApiFactory factory)
     [Fact]
     public async Task ReservationsSchedulesQrAndAttendance_HaveExactPropertiesAndTypes()
     {
-        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 17, 11, 0, 0, TimeSpan.Zero));
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 17, 10, 59, 0, TimeSpan.Zero));
         using var host = factory.WithClock(clock);
         var user = await factory.CreateClientUserAsync();
         using var realClient = user.Client;
@@ -49,13 +49,19 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         client.DefaultRequestHeaders.Authorization = realClient.DefaultRequestHeaders.Authorization;
         using var admin = host.CreateClient();
         admin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
-        var slot = await factory.CreateSlotAsync("Martes", "08:00", "09:30");
-        var created = await Expect(await Reserve(client, slot), HttpStatusCode.OK);
+        var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(8, 0), new TimeOnly(9, 30));
+        var created = await Expect(await Reserve(client, slot.Id, new DateOnly(2026, 11, 17)), HttpStatusCode.OK);
         ReservationMessage(created);
+        var reservation = created.GetProperty("reservation");
+        Assert.Equal(slot.Id, reservation.GetProperty("scheduleSlotId").GetInt32());
+        Assert.Equal("2026-11-17", reservation.GetProperty("date").GetString());
+        Assert.Equal("Martes", reservation.GetProperty("day").GetString());
+        Assert.Equal("08:00", reservation.GetProperty("startTime").GetString());
+        Assert.Equal("09:30", reservation.GetProperty("endTime").GetString());
         var id = created.GetProperty("reservation").GetProperty("id").GetInt32();
         Array(await Expect(await admin.GetAsync("/api/reservations", Ct), HttpStatusCode.OK), ReservationShape);
         Array(await Expect(await client.GetAsync($"/api/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK), ReservationShape);
-        Array(await Expect(await client.GetAsync("/api/schedules", Ct), HttpStatusCode.OK), "id:n day:s startTime:s endTime:s zone:s capacity:n reservedCount:n");
+        Array(await Expect(await client.GetAsync("/api/schedules", Ct), HttpStatusCode.OK), "id:n day:s startTime:s endTime:s zone:s capacity:n reservedCount:n date:s");
         var qr = await Expect(await client.GetAsync("/api/qr/my-code", Ct), HttpStatusCode.OK);
         Shape(qr, "rut:s name:s date:s token:s validFrom:s validUntil:s");
         var token = qr.GetProperty("token").GetString()!;
@@ -68,7 +74,10 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         AttendanceMessage(exit);
         Assert.Equal(JsonValueKind.String, exit.GetProperty("attendance").GetProperty("exitTime").ValueKind);
         Assert.Equal(JsonValueKind.String, exit.GetProperty("attendance").GetProperty("exitAdminRut").ValueKind);
-        ReservationMessage(await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.OK));
+        var futureSlot = await factory.CreateSlotAsync(DayOfWeek.Wednesday, new TimeOnly(8, 0), new TimeOnly(9, 30));
+        var futureId = (await Reservation(client, futureSlot.Id, new DateOnly(2026, 11, 18))).GetProperty("id").GetInt32();
+        ReservationMessage(await Expect(await client.DeleteAsync($"/api/reservations/{futureId}", Ct), HttpStatusCode.OK));
+        await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.BadRequest, "Solo se pueden cancelar reservas activas.");
     }
 
     [Fact]
