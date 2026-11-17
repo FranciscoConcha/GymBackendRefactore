@@ -2,7 +2,7 @@ using System.Globalization;
 using Microsoft.Extensions.Time.Testing;
 using System.Net;
 using GymBackend.IntegrationTests.Infrastructure;
-using GymBackend.Services;
+using GymBackend.Application.Qr;
 using Microsoft.EntityFrameworkCore;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
 
@@ -24,9 +24,9 @@ public sealed class AttendanceTests(GymApiFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await Api.Attendance(admin, action, "basura"), HttpStatusCode.BadRequest, "Código QR inválido.");
-        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(user.Rut, "otra-clave", GymTime.Today())), HttpStatusCode.BadRequest, "Código QR inválido.");
-        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(user.Rut, factory.JwtKey, GymTime.Today().AddDays(-1))), HttpStatusCode.BadRequest, "El código QR no corresponde al día de hoy.");
-        await Expect(await Api.Attendance(admin, action, QrTokenService.GenerateToken(TestData.NextRut(), factory.JwtKey, GymTime.Today())), HttpStatusCode.BadRequest, "Código QR inválido.");
+        await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(user.Rut, "otra-clave", DateOnly.FromDateTime(GymTime.Today()))), HttpStatusCode.BadRequest, "Código QR inválido.");
+        await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(user.Rut, factory.JwtKey, DateOnly.FromDateTime(GymTime.Today().AddDays(-1)))), HttpStatusCode.BadRequest, "El código QR no corresponde al día de hoy.");
+        await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(TestData.NextRut(), factory.JwtKey, DateOnly.FromDateTime(GymTime.Today()))), HttpStatusCode.BadRequest, "Código QR inválido.");
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
         await Expect(await Api.Attendance(admin, action, await Api.Qr(client)), HttpStatusCode.BadRequest, "El usuario no está habilitado.");
     }

@@ -8,6 +8,7 @@ builder.Services.AddControllers();
 builder.Services.AddGymErrors();
 builder.Services.AddGymOptions();
 builder.Services.AddGymTime();
+builder.Services.AddAttendanceServices();
 builder.Services.AddGymPersistence(builder.Configuration);
 builder.Services.AddGymAuthentication();
 builder.Services.AddEndpointsApiExplorer();
