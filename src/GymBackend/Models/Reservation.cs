@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 namespace GymBackend.Models;
 
 public class Reservation
@@ -14,11 +15,11 @@ public class Reservation
 
     public string EndTime { get; set; } = string.Empty;
 
-    public string Zone { get; set; } = "Sala de Pesas";
+    public string Zone { get; set; } = Zones.Default;
 
     public int Capacity { get; set; } = 20;
 
-    public string Status { get; set; } = "Reservado";
+    public string Status { get; set; } = ReservationStatuses.Reserved;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

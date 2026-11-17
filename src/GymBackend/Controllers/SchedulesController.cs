@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 using GymBackend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -26,7 +27,7 @@ public class SchedulesController : ControllerBase
             .ToListAsync();
 
         var activeReservations = await _context.Reservations
-            .Where(reservation => reservation.Status == "Reservado")
+            .Where(reservation => reservation.Status == ReservationStatuses.Reserved)
             .ToListAsync();
 
         var result = schedules.Select(schedule => new

@@ -6,7 +6,7 @@ using GymBackend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
+using GymBackend.Extensions;
 
 namespace GymBackend.Controllers;
 
@@ -29,8 +29,12 @@ public class QrController : ControllerBase
     [HttpGet("my-code")]
     public async Task<IActionResult> GetMyCode()
     {
-        var userId = CurrentUserId();
-        var user = await _context.Users.FindAsync(userId);
+        var userId = User.GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+        }
+        var user = await _context.Users.FindAsync(userId.Value);
 
         if (user is null)
         {
@@ -52,14 +56,5 @@ public class QrController : ControllerBase
             validFrom = _clock.StartOfDay(today),
             validUntil = _clock.StartOfDay(today.AddDays(1)).AddMinutes(-1),
         });
-    }
-
-    private int CurrentUserId()
-    {
-        var value = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        return int.TryParse(value, out var userId)
-            ? userId
-            : throw new UnauthorizedAccessException("La sesión no contiene un usuario válido.");
     }
 }

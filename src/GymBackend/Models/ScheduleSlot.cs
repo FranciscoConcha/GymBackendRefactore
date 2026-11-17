@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 namespace GymBackend.Models;
 
 public class ScheduleSlot
@@ -10,7 +11,7 @@ public class ScheduleSlot
 
     public string EndTime { get; set; } = string.Empty;
 
-    public string Zone { get; set; } = "Sala de Pesas";
+    public string Zone { get; set; } = Zones.Default;
 
     public int Capacity { get; set; } = 20;
 

@@ -1,3 +1,4 @@
+using GymBackend.Domain;
 using GymBackend.Data;
 using GymBackend.Time;
 using GymBackend.Options;
@@ -8,21 +9,16 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
-using System.Security.Claims;
+using GymBackend.Extensions;
 
 namespace GymBackend.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = Roles.Admin)]
 public class AttendanceController : ControllerBase
 {
     private static readonly TimeSpan ScheduleTolerance = TimeSpan.FromMinutes(15);
-
-    private static readonly string[] SpanishWeekdays =
-    {
-        "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado",
-    };
 
     private readonly AppDbContext _context;
     private readonly IGymClock _clock;
@@ -65,13 +61,13 @@ public class AttendanceController : ControllerBase
 
         if (attendance is null)
         {
-            var todayName = SpanishWeekdays[(int)now.DateTime.DayOfWeek];
+            var todayName = GymWeekdays.Name(now.DateTime.DayOfWeek);
 
             var todaysReservations = await _context.Reservations
                 .Where(reservation =>
                     reservation.UserId == user.Id &&
                     reservation.Day == todayName &&
-                    reservation.Status == "Reservado")
+                    reservation.Status == ReservationStatuses.Reserved)
                 .ToListAsync();
 
             matchedReservation = todaysReservations.FirstOrDefault(reservation => IsWithinSchedule(reservation, now.DateTime));
@@ -110,7 +106,7 @@ public class AttendanceController : ControllerBase
             };
 
             _context.Attendances.Add(attendance);
-            matchedReservation.Status = "Asistió";
+            matchedReservation.Status = ReservationStatuses.Attended;
         }
         else
         {
@@ -203,7 +199,7 @@ public class AttendanceController : ControllerBase
 
     private string CurrentAdminRut()
     {
-        return User.FindFirstValue("rut") ?? string.Empty;
+        return User.GetRut() ?? string.Empty;
     }
 }
 

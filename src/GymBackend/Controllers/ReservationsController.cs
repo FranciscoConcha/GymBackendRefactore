@@ -1,10 +1,11 @@
+using GymBackend.Domain;
 using GymBackend.Data;
 using GymBackend.Time;
 using GymBackend.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
+using GymBackend.Extensions;
 
 namespace GymBackend.Controllers;
 
@@ -23,7 +24,7 @@ public class ReservationsController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Admin)]
     public async Task<IActionResult> GetReservations()
     {
         var reservations = await _context.Reservations
@@ -36,9 +37,18 @@ public class ReservationsController : ControllerBase
     [HttpGet("user/{userId}")]
     public async Task<IActionResult> GetReservationsByUser(int userId)
     {
-        if (!User.IsInRole("Admin") && CurrentUserId() != userId)
+        if (!User.IsInRole(Roles.Admin))
         {
-            return Forbid();
+            var currentUserId = User.GetUserId();
+            if (currentUserId is null)
+            {
+                return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+            }
+
+            if (currentUserId.Value != userId)
+            {
+                return Forbid();
+            }
         }
 
         var reservations = await _context.Reservations
@@ -52,7 +62,11 @@ public class ReservationsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> CreateReservation(CreateReservationRequest request)
     {
-        var userId = CurrentUserId();
+        var userId = User.GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+        }
         var day = request.Day.Trim();
         var startTime = request.StartTime.Trim();
         var endTime = request.EndTime.Trim();
@@ -70,7 +84,7 @@ public class ReservationsController : ControllerBase
             return BadRequest(new { message = "El bloque seleccionado no está disponible." });
         }
 
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.FindAsync(userId.Value);
 
         if (user is null)
         {
@@ -82,7 +96,7 @@ public class ReservationsController : ControllerBase
             reservation.StartTime == startTime &&
             reservation.EndTime == endTime &&
             reservation.Zone == zone &&
-            reservation.Status == "Reservado");
+            reservation.Status == ReservationStatuses.Reserved);
 
         if (reservedCount >= schedule.Capacity)
         {
@@ -95,7 +109,7 @@ public class ReservationsController : ControllerBase
             reservation.StartTime == startTime &&
             reservation.EndTime == endTime &&
             reservation.Zone == zone &&
-            reservation.Status == "Reservado");
+            reservation.Status == ReservationStatuses.Reserved);
 
         if (alreadyReserved)
         {
@@ -111,7 +125,7 @@ public class ReservationsController : ControllerBase
             EndTime = endTime,
             Zone = zone,
             Capacity = schedule.Capacity,
-            Status = "Reservado",
+            Status = ReservationStatuses.Reserved,
             CreatedAt = _clock.UtcNow.UtcDateTime,
         };
 
@@ -135,12 +149,21 @@ public class ReservationsController : ControllerBase
             return NotFound(new { message = "Reserva no encontrada." });
         }
 
-        if (!User.IsInRole("Admin") && reservation.UserId != CurrentUserId())
+        if (!User.IsInRole(Roles.Admin))
         {
-            return Forbid();
+            var currentUserId = User.GetUserId();
+            if (currentUserId is null)
+            {
+                return Unauthorized(new { message = "La sesión no contiene un usuario válido." });
+            }
+
+            if (reservation.UserId != currentUserId.Value)
+            {
+                return Forbid();
+            }
         }
 
-        reservation.Status = "Cancelado";
+        reservation.Status = ReservationStatuses.Cancelled;
         await _context.SaveChangesAsync();
 
         return Ok(new
@@ -148,15 +171,6 @@ public class ReservationsController : ControllerBase
             message = "Reserva cancelada correctamente.",
             reservation,
         });
-    }
-
-    private int CurrentUserId()
-    {
-        var value = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        return int.TryParse(value, out var userId)
-            ? userId
-            : throw new UnauthorizedAccessException("La sesión no contiene un usuario válido.");
     }
 }
 
@@ -168,5 +182,5 @@ public class CreateReservationRequest
 
     public string EndTime { get; set; } = string.Empty;
 
-    public string Zone { get; set; } = "Sala de Pesas";
+    public string Zone { get; set; } = Zones.Default;
 }
