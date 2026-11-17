@@ -13,6 +13,7 @@ builder.Services.AddGymAuthentication();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddGymCors();
+builder.Services.AddReservationServices();
 
 var app = builder.Build();
 app.UseExceptionHandler();
