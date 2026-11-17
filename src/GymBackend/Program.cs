@@ -1,9 +1,19 @@
 using GymBackend.Data;
 using GymBackend.Extensions;
 using GymBackend.Options;
+using GymBackend.Security;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+if (!builder.Environment.IsDevelopment())
+{
+    builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+    builder.Services.AddHsts(options =>
+    {
+        options.MaxAge = TimeSpan.FromDays(365);
+        options.IncludeSubDomains = true;
+    });
+}
 builder.Services.AddControllers();
 builder.Services.AddGymErrors();
 builder.Services.AddGymOptions();
@@ -18,6 +28,7 @@ builder.Services.AddAuthServices();
 builder.Services.AddAttendanceServices();
 
 var app = builder.Build();
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseExceptionHandler();
 if (app.Environment.IsDevelopment())
 {
@@ -25,7 +36,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 app.UseCors("Frontend");
-if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
