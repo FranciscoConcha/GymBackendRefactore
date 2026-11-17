@@ -53,7 +53,14 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         };
 
         context.Users.Add(user);
-        await context.SaveChangesAsync(ct);
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException exception) when (exception.IsUniqueViolation())
+        {
+            return ServiceError.Conflict("El RUT, el correo o el usuario ya está registrado en el sistema.");
+        }
 
         return ServiceResult<UserMessageResponse>.Success(new UserMessageResponse("Usuario registrado correctamente.", UserResponse.From(user)));
     }

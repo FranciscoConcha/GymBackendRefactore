@@ -48,6 +48,10 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
 
     public async Task<ServiceResult<ReservationMessageResponse>> CreateAsync(int userId, CreateReservationRequest request, CancellationToken ct = default)
     {
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"ScheduleSlots\" WHERE \"Id\" = {request.ScheduleSlotId} FOR UPDATE", ct);
+
         var schedule = await context.ScheduleSlots.FirstOrDefaultAsync(slot => slot.Id == request.ScheduleSlotId && slot.Enabled, ct);
         if (schedule is null)
             return ServiceError.Validation("El bloque seleccionado no está disponible.");
@@ -97,7 +101,16 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
         };
 
         context.Reservations.Add(reservation);
-        await context.SaveChangesAsync(ct);
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException exception) when (exception.IsUniqueViolation())
+        {
+            return ServiceError.Conflict("Ya tienes una reserva para este bloque.");
+        }
+
+        await transaction.CommitAsync(ct);
 
         return ServiceResult<ReservationMessageResponse>.Success(new ReservationMessageResponse("Reserva creada correctamente.", ReservationResponse.From(reservation)));
     }

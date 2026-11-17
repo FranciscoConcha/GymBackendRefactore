@@ -93,7 +93,14 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
             attendance.CheckedIn = true;
         }
 
-        await _context.SaveChangesAsync(ct);
+        try
+        {
+            await _context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException exception) when (exception.IsUniqueViolation())
+        {
+            return ServiceError.Conflict("Usuario ya registra una entrada en el día.");
+        }
 
         return ServiceResult<AttendanceMessageResponse>.Success(new AttendanceMessageResponse("Entrada registrada correctamente.", AttendanceResponse.From(attendance)));
     }

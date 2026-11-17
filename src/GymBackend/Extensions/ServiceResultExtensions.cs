@@ -15,6 +15,7 @@ public static class ServiceResultExtensions
         ServiceErrorKind.Validation => controller.BadRequest(new MessageResponse(error.Message)),
         ServiceErrorKind.Unauthorized => controller.Unauthorized(new MessageResponse(error.Message)),
         ServiceErrorKind.Forbidden => controller.Forbid(),
+        ServiceErrorKind.Conflict => controller.Conflict(new MessageResponse(error.Message)),
         ServiceErrorKind.NotFound => controller.NotFound(new MessageResponse(error.Message)),
         _ => throw new ArgumentOutOfRangeException(nameof(error)),
     };
