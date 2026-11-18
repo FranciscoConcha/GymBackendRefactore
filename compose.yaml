@@ -21,6 +21,9 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: Host=database;Port=5432;Database=${POSTGRES_DB:-ucn_gym_review};Username=${POSTGRES_USER:-gym};Password=${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD in .env}
       Jwt__Key: ${JWT_KEY:?Configure JWT_KEY in .env}
+      Jwt__Issuer: ${JWT_ISSUER:-ucn-gym-api}
+      Jwt__Audience: ${JWT_AUDIENCE:-ucn-gym-frontend}
+      Qr__SigningKey: ${QR_SIGNING_KEY:?Configure QR_SIGNING_KEY in .env}
       Cors__AllowedOrigins__0: http://localhost:4173
       Cors__AllowedOrigins__1: http://localhost:8080
       Database__Initialize: "true"

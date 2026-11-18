@@ -30,6 +30,8 @@ public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions) : ITokenSer
             SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
+            issuer: jwtOptions.Value.Issuer,
+            audience: jwtOptions.Value.Audience,
             claims: claims,
             expires: DateTime.UtcNow.AddHours(8),
             signingCredentials: credentials);

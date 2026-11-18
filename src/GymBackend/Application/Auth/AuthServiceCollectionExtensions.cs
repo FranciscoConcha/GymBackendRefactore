@@ -9,7 +9,7 @@ public static class AuthServiceCollectionExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<ITokenService, JwtTokenService>();
-        services.AddScoped<IUserPasswordHasher, LegacySha256PasswordHasher>();
+        services.AddScoped<IUserPasswordHasher, Pbkdf2PasswordHasher>();
         return services;
     }
 }

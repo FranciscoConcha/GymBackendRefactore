@@ -1,4 +1,4 @@
-﻿using GymBackend.Application.Auth;
+using GymBackend.Application.Auth;
 using GymBackend.Domain;
 using GymBackend.Models;
 using GymBackend.Options;
@@ -31,11 +31,11 @@ public static class DevelopmentSeeder
         var adminPassword = bootstrap.AdminPassword;
         if (!await db.Users.AnyAsync(user => user.Role == Roles.Admin, ct) && !string.IsNullOrWhiteSpace(adminPassword))
         {
-            var rut = bootstrap.AdminRut;
+            var validRut = RutFormat.TryNormalize(bootstrap.AdminRut, out var rut);
             var email = bootstrap.AdminEmail;
             var username = bootstrap.AdminUsername;
-            if (adminPassword.Length < 16 || string.IsNullOrWhiteSpace(rut) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(username))
-                throw new InvalidOperationException("Bootstrap requiere RUT, correo, usuario y una contraseña de al menos 16 caracteres.");
+            if (adminPassword.Length < 16 || !validRut || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(username))
+                throw new InvalidOperationException("Bootstrap requiere RUT, correo, usuario y una contrase\u00f1a de al menos 16 caracteres.");
             var passwordHasher = scope.ServiceProvider.GetRequiredService<IUserPasswordHasher>();
             db.Users.Add(new User
             {
@@ -48,4 +48,3 @@ public static class DevelopmentSeeder
         }
     }
 }
-

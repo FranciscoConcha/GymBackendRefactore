@@ -4,6 +4,7 @@ using GymBackend.DTOs;
 using GymBackend.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace GymBackend.Controllers;
 
@@ -23,6 +24,7 @@ public class AuthController(IAuthService authService, IUserService userService) 
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
     [ProducesResponseType<AuthResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
@@ -32,6 +34,7 @@ public class AuthController(IAuthService authService, IUserService userService) 
     }
 
     [HttpPost("admin-login")]
+    [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
     [ProducesResponseType<AuthResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]

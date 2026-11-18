@@ -10,11 +10,9 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
 {
     public async Task<ServiceResult<AuthResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
-        var rut = request.Rut.Trim();
-
-        if (!RutFormat.IsValid(rut))
+        if (!RutFormat.TryNormalize(request.Rut, out var rut))
         {
-            return ServiceError.Validation("El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion.");
+            return ServiceError.Validation(RutFormat.ValidationMessage);
         }
 
         if (string.IsNullOrWhiteSpace(request.Password))
@@ -26,13 +24,17 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             .Where(candidate => candidate.Rut == rut)
             .OrderBy(candidate => candidate.Id)
             .ToListAsync(ct);
-        var user = candidates.FirstOrDefault(candidate =>
-            passwordHasher.Verify(request.Password, candidate.PasswordHash));
+        if (candidates.Count == 0) passwordHasher.VerifyDummy(request.Password);
+        var match = candidates.Select(candidate => (User: candidate, Check: passwordHasher.Verify(request.Password, candidate.PasswordHash)))
+            .FirstOrDefault(candidate => candidate.Check != PasswordCheck.Failed);
+        var user = match.User;
 
-        if (user is null || user.Role == Roles.Admin)
+        if (user is null || !user.Enabled || user.Role == Roles.Admin)
         {
             return ServiceError.Unauthorized("Credenciales de usuario incorrectas.");
         }
+
+        await RehashIfNeededAsync(user, request.Password, match.Check, ct);
 
         return ServiceResult<AuthResponse>.Success(new AuthResponse("Login correcto.", tokenService.CreateToken(user), UserResponse.From(user)));
     }
@@ -50,14 +52,25 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             .Where(candidate => candidate.Username.ToLower() == username && candidate.Role == Roles.Admin)
             .OrderBy(candidate => candidate.Id)
             .ToListAsync(ct);
-        var admin = candidates.FirstOrDefault(candidate =>
-            passwordHasher.Verify(request.Password, candidate.PasswordHash));
+        if (candidates.Count == 0) passwordHasher.VerifyDummy(request.Password);
+        var match = candidates.Select(candidate => (User: candidate, Check: passwordHasher.Verify(request.Password, candidate.PasswordHash)))
+            .FirstOrDefault(candidate => candidate.Check != PasswordCheck.Failed);
+        var admin = match.User;
 
-        if (admin is null)
+        if (admin is null || !admin.Enabled)
         {
             return ServiceError.Unauthorized("Credenciales de administrador incorrectas.");
         }
 
+        await RehashIfNeededAsync(admin, request.Password, match.Check, ct);
+
         return ServiceResult<AuthResponse>.Success(new AuthResponse("Login de administrador correcto.", tokenService.CreateToken(admin), UserResponse.From(admin)));
+    }
+
+    private async Task RehashIfNeededAsync(GymBackend.Models.User user, string password, PasswordCheck check, CancellationToken ct)
+    {
+        if (check != PasswordCheck.SuccessRehashNeeded) return;
+        user.PasswordHash = passwordHasher.Hash(password);
+        await context.SaveChangesAsync(ct);
     }
 }

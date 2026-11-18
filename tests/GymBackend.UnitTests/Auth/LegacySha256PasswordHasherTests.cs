@@ -6,12 +6,6 @@ public sealed class LegacySha256PasswordHasherTests
 {
     private const string KnownHash = "33M2Vik6GcVPaQk7qRbwoaKjwVH8lcE/OnlMJjHus6Y=";
 
-    [Fact]
-    public void Hash_MatchesKnownLegacyHash()
-    {
-        Assert.Equal(KnownHash, new LegacySha256PasswordHasher().Hash("secreto"));
-    }
-
     [Theory]
     [InlineData("secreto", true)]
     [InlineData("incorrecta", false)]

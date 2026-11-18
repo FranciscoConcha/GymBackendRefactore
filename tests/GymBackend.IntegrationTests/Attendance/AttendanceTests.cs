@@ -26,10 +26,11 @@ public sealed class AttendanceTests(GymApiFactory factory)
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await Api.Attendance(admin, action, "basura"), HttpStatusCode.BadRequest, "Código QR inválido.");
         await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(user.Rut, "otra-clave", DateOnly.FromDateTime(GymTime.Today()))), HttpStatusCode.BadRequest, "Código QR inválido.");
-        await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(user.Rut, factory.JwtKey, DateOnly.FromDateTime(GymTime.Today().AddDays(-1)))), HttpStatusCode.BadRequest, "El código QR no corresponde al día de hoy.");
-        await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(TestData.NextRut(), factory.JwtKey, DateOnly.FromDateTime(GymTime.Today()))), HttpStatusCode.BadRequest, "Código QR inválido.");
+        await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(user.Rut, factory.QrKey, DateOnly.FromDateTime(GymTime.Today().AddDays(-1)))), HttpStatusCode.BadRequest, "El código QR no corresponde al día de hoy.");
+        await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(TestData.NextRut(), factory.QrKey, DateOnly.FromDateTime(GymTime.Today()))), HttpStatusCode.BadRequest, "Código QR inválido.");
+        var qrBeforeDisabling = await Api.Qr(client);
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
-        await Expect(await Api.Attendance(admin, action, await Api.Qr(client)), HttpStatusCode.BadRequest, "El usuario no está habilitado.");
+        await Expect(await Api.Attendance(admin, action, qrBeforeDisabling), HttpStatusCode.BadRequest, "El usuario no está habilitado.");
     }
 
     [Fact]

@@ -20,6 +20,7 @@ builder.Services.AddGymOptions();
 builder.Services.AddGymTime();
 builder.Services.AddGymPersistence(builder.Configuration);
 builder.Services.AddGymAuthentication();
+builder.Services.AddGymRateLimiting();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddGymCors();
@@ -35,7 +36,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+app.UseRouting();
 app.UseCors("Frontend");
+app.UseRateLimiter();
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
