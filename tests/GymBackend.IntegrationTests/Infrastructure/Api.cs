@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -24,17 +24,17 @@ internal static class Api
     }
 
     internal static Task<HttpResponseMessage> Reserve(HttpClient client, int slotId, DateOnly date) =>
-        client.PostAsJsonAsync("/api/reservations", new { scheduleSlotId = slotId, date }, JsonOptions, Ct);
+        client.PostAsJsonAsync("/api/v1/reservations", new { scheduleSlotId = slotId, date }, JsonOptions, Ct);
 
     internal static Task<HttpResponseMessage> Status(HttpClient client, int id, bool enabled) =>
-        client.PatchAsJsonAsync($"/api/auth/users/{id}/status", new { enabled }, JsonOptions, Ct);
+        client.PatchAsJsonAsync($"/api/v1/auth/users/{id}/status", new { enabled }, JsonOptions, Ct);
 
     internal static async Task<JsonElement> Reservation(HttpClient client, int slotId, DateOnly date) =>
         (await Expect(await Reserve(client, slotId, date), HttpStatusCode.OK, "Reserva creada correctamente.")).GetProperty("reservation");
 
     internal static async Task<string> Qr(HttpClient client) =>
-        (await Expect(await client.GetAsync("/api/qr/my-code", Ct), HttpStatusCode.OK)).GetProperty("token").GetString()!;
+        (await Expect(await client.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.OK)).GetProperty("token").GetString()!;
 
     internal static Task<HttpResponseMessage> Attendance(HttpClient client, string action, string token) =>
-        client.PostAsJsonAsync($"/api/attendance/{action}", new { token }, JsonOptions, Ct);
+        client.PostAsJsonAsync($"/api/v1/attendance/{action}", new { token }, JsonOptions, Ct);
 }

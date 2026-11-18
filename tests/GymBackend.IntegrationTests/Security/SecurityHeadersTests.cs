@@ -8,8 +8,8 @@ public sealed class SecurityHeadersTests(GymApiFactory factory)
 {
     [Theory]
     [InlineData("/health/live", HttpStatusCode.OK)]
-    [InlineData("/api/schedules", HttpStatusCode.Unauthorized)]
-    [InlineData("/api/does-not-exist", HttpStatusCode.NotFound)]
+    [InlineData("/api/v1/schedules", HttpStatusCode.Unauthorized)]
+    [InlineData("/api/v1/does-not-exist", HttpStatusCode.NotFound)]
     public async Task AnonymousResponses_HaveSecurityHeaders(string path, HttpStatusCode status)
     {
         using var client = factory.CreateClient();
@@ -24,7 +24,7 @@ public sealed class SecurityHeadersTests(GymApiFactory factory)
     {
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
-        using var response = await client.GetAsync("/api/auth/users", Ct);
+        using var response = await client.GetAsync("/api/v1/auth/users", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         AssertHeaders(response);
         AssertNoStore(response);
@@ -34,7 +34,7 @@ public sealed class SecurityHeadersTests(GymApiFactory factory)
     public async Task SuccessfulApiResponse_HasSecurityHeadersAndNoStore()
     {
         using var admin = await factory.CreateAdminClientAsync();
-        using var response = await admin.GetAsync("/api/auth/users", Ct);
+        using var response = await admin.GetAsync("/api/v1/auth/users", Ct);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         AssertHeaders(response);
         AssertNoStore(response);

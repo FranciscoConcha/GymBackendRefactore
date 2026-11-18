@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace GymBackend.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route(ApiRoutes.V1)]
 [Authorize]
 public class QrController(IQrService service) : ControllerBase
 {

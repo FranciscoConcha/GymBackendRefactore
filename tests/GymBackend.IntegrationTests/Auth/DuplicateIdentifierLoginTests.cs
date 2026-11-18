@@ -33,10 +33,10 @@ public sealed class DuplicateIdentifierLoginTests(GymApiFactory factory)
         });
 
         using var client = factory.CreateClient();
-        var result = await Expect(await client.PostAsJsonAsync("/api/auth/login",
+        var result = await Expect(await client.PostAsJsonAsync("/api/v1/auth/login",
             new { rut = secondRut, password = secondPassword }, JsonOptions, Ct), HttpStatusCode.OK, "Login correcto.");
         Assert.Equal(ids[1], result.GetProperty("user").GetProperty("id").GetInt32());
-        await Expect(await client.PostAsJsonAsync("/api/auth/login",
+        await Expect(await client.PostAsJsonAsync("/api/v1/auth/login",
             new { rut = secondRut, password = "IncorrectPassword!" }, JsonOptions, Ct), HttpStatusCode.Unauthorized,
             "Credenciales de usuario incorrectas.");
     }
@@ -64,7 +64,7 @@ public sealed class DuplicateIdentifierLoginTests(GymApiFactory factory)
         });
 
         using var client = factory.CreateClient();
-        var result = await Expect(await client.PostAsJsonAsync("/api/auth/admin-login",
+        var result = await Expect(await client.PostAsJsonAsync("/api/v1/auth/admin-login",
             new { username = secondUsername, password = secondPassword }, JsonOptions, Ct), HttpStatusCode.OK,
             "Login de administrador correcto.");
         Assert.Equal(ids[1], result.GetProperty("user").GetProperty("id").GetInt32());

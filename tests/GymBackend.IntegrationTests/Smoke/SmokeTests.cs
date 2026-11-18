@@ -30,7 +30,7 @@ public sealed class SmokeTests(GymApiFactory factory)
     public async Task AdminLogin_WithBootstrapCredentials_ReturnsToken()
     {
         using var client = factory.CreateClient();
-        using var response = await client.PostAsJsonAsync("/api/auth/admin-login",
+        using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login",
             new { username = factory.AdminUsername, password = factory.AdminPassword }, JsonOptions, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, TestContext.Current.CancellationToken);
@@ -44,7 +44,7 @@ public sealed class SmokeTests(GymApiFactory factory)
         var date = GymTime.Tomorrow();
         using var client = await factory.CreateAdminClientAsync();
         var own = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
-        using var response = await client.GetAsync($"/api/schedules?date={date:yyyy-MM-dd}", TestContext.Current.CancellationToken);
+        using var response = await client.GetAsync($"/api/v1/schedules?date={date:yyyy-MM-dd}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var slots = await response.Content.ReadFromJsonAsync<GymBackend.DTOs.ScheduleResponse[]>(JsonOptions, TestContext.Current.CancellationToken);
         Assert.NotNull(slots);

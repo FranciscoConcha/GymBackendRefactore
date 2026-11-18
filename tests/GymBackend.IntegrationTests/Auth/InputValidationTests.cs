@@ -14,7 +14,7 @@ public sealed class InputValidationTests(GymApiFactory factory)
     {
         using var admin = await factory.CreateAdminClientAsync();
         var rut = TestData.NextRut();
-        await Expect(await admin.PostAsJsonAsync("/api/auth/register", new
+        await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut, name, email = $"{rut}@example.test", password = "Password123!", userType = "Estudiante",
         }, JsonOptions, Ct), HttpStatusCode.BadRequest, "El nombre contiene caracteres no permitidos.");
@@ -27,7 +27,7 @@ public sealed class InputValidationTests(GymApiFactory factory)
     {
         using var admin = await factory.CreateAdminClientAsync();
         var rut = TestData.NextRut();
-        var json = await Expect(await admin.PostAsJsonAsync("/api/auth/register", new
+        var json = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut, name, email = $"{rut}@example.test", password = "Password123!", userType = "Estudiante",
         }, JsonOptions, Ct), HttpStatusCode.OK, "Usuario registrado correctamente.");
@@ -40,7 +40,7 @@ public sealed class InputValidationTests(GymApiFactory factory)
     public async Task Register_InvalidEmail_BadRequest(string email)
     {
         using var admin = await factory.CreateAdminClientAsync();
-        await Expect(await admin.PostAsJsonAsync("/api/auth/register", new
+        await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut = TestData.NextRut(), name = "Juan", email, password = "Password123!", userType = "Estudiante",
         }, JsonOptions, Ct), HttpStatusCode.BadRequest, "El correo no tiene un formato válido.");

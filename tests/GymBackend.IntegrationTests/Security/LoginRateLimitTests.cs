@@ -21,12 +21,12 @@ public sealed class LoginRateLimitTests(GymApiFactory factory)
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            using var response = await client.PostAsJsonAsync("/api/auth/login",
+            using var response = await client.PostAsJsonAsync("/api/v1/auth/login",
                 new { rut = factory.AdminRut, password = "incorrecta" }, JsonOptions, Ct);
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
-        await AssertRateLimited(await client.PostAsJsonAsync("/api/auth/login",
+        await AssertRateLimited(await client.PostAsJsonAsync("/api/v1/auth/login",
             new { rut = factory.AdminRut, password = "incorrecta" }, JsonOptions, Ct));
         using var health = await client.GetAsync("/health/live", Ct);
         Assert.Equal(HttpStatusCode.OK, health.StatusCode);
@@ -40,12 +40,12 @@ public sealed class LoginRateLimitTests(GymApiFactory factory)
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            using var response = await client.PostAsJsonAsync("/api/auth/admin-login",
+            using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login",
                 new { username = factory.AdminUsername, password = "incorrecta" }, JsonOptions, Ct);
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
-        await AssertRateLimited(await client.PostAsJsonAsync("/api/auth/admin-login",
+        await AssertRateLimited(await client.PostAsJsonAsync("/api/v1/auth/admin-login",
             new { username = factory.AdminUsername, password = "incorrecta" }, JsonOptions, Ct));
     }
 

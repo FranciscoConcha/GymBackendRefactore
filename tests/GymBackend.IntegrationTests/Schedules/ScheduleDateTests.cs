@@ -17,7 +17,7 @@ public sealed class ScheduleDateTests(GymApiFactory factory)
         var late = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(15, 0), new TimeOnly(16, 0));
         var early = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(6, 0), new TimeOnly(7, 0));
         var otherDay = await factory.CreateSlotAsync(DayOfWeek.Wednesday, new TimeOnly(6, 0), new TimeOnly(7, 0));
-        var today = await Expect(await client.GetAsync("/api/schedules", Ct), HttpStatusCode.OK);
+        var today = await Expect(await client.GetAsync("/api/v1/schedules", Ct), HttpStatusCode.OK);
         var slots = today.EnumerateArray().ToArray();
         Assert.Contains(slots, s => s.GetProperty("id").GetInt32() == early.Id);
         Assert.Contains(slots, s => s.GetProperty("id").GetInt32() == late.Id);
@@ -29,7 +29,7 @@ public sealed class ScheduleDateTests(GymApiFactory factory)
         });
         var starts = slots.Select(s => s.GetProperty("startTime").GetString()).ToArray();
         Assert.Equal(starts.OrderBy(s => s, StringComparer.Ordinal), starts);
-        var tomorrow = await Expect(await client.GetAsync("/api/schedules?date=2026-11-18", Ct), HttpStatusCode.OK);
+        var tomorrow = await Expect(await client.GetAsync("/api/v1/schedules?date=2026-11-18", Ct), HttpStatusCode.OK);
         Assert.Contains(tomorrow.EnumerateArray(), s => s.GetProperty("id").GetInt32() == otherDay.Id);
         Assert.All(tomorrow.EnumerateArray(), s =>
         {
@@ -42,7 +42,7 @@ public sealed class ScheduleDateTests(GymApiFactory factory)
     public async Task Get_Sunday_HasNoSeededBlocks()
     {
         using var client = await factory.CreateAdminClientAsync();
-        var schedules = await Expect(await client.GetAsync("/api/schedules?date=2026-11-22", Ct), HttpStatusCode.OK);
+        var schedules = await Expect(await client.GetAsync("/api/v1/schedules?date=2026-11-22", Ct), HttpStatusCode.OK);
         // La BD es compartida: otras pruebas pueden crear bloques dominicales con zona única
         // (p. ej. si la suite corre un sábado y reservan "mañana"). Solo se fija que la siembra no abre domingos
         // y que todo lo devuelto corresponde a domingo.
@@ -58,7 +58,7 @@ public sealed class ScheduleDateTests(GymApiFactory factory)
     public async Task Get_InvalidDate_ExactMessage(string date)
     {
         using var client = await factory.CreateAdminClientAsync();
-        await Expect(await client.GetAsync($"/api/schedules?date={date}", Ct), HttpStatusCode.BadRequest,
+        await Expect(await client.GetAsync($"/api/v1/schedules?date={date}", Ct), HttpStatusCode.BadRequest,
             "Fecha inválida. Use el formato yyyy-MM-dd.");
     }
 }

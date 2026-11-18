@@ -104,7 +104,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var client = CreateClient();
         try
         {
-            using var response = await client.PostAsJsonAsync("/api/auth/admin-login",
+            using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login",
                 new { username = AdminUsername, password = AdminPassword }, JsonOptions, TestContext.Current.CancellationToken);
             var auth = await ReadAuthAsync(response);
             SetToken(client, auth.Token);
@@ -123,7 +123,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var rut = TestData.NextRut();
         var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
         using var admin = await CreateAdminClientAsync();
-        using var registration = await admin.PostAsJsonAsync("/api/auth/register", new
+        using var registration = await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut, name = $"Test {rut}", email = $"user-{rut}@example.test", password, userType,
         }, JsonOptions, TestContext.Current.CancellationToken);
@@ -133,7 +133,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var client = CreateClient();
         try
         {
-            using var login = await client.PostAsJsonAsync("/api/auth/login", new { rut, password }, JsonOptions, TestContext.Current.CancellationToken);
+            using var login = await client.PostAsJsonAsync("/api/v1/auth/login", new { rut, password }, JsonOptions, TestContext.Current.CancellationToken);
             var auth = await ReadAuthAsync(login);
             SetToken(client, auth.Token);
             return (client, userId, rut, password);

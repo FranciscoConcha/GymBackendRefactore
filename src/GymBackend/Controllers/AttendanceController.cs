@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace GymBackend.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route(ApiRoutes.V1)]
 [Authorize(Roles = Roles.Admin)]
 public class AttendanceController(IAttendanceService service) : ControllerBase
 {
