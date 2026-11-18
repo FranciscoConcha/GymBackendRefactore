@@ -7,6 +7,8 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 if (!builder.Environment.IsDevelopment())
 {
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole(o => { o.IncludeScopes = true; o.UseUtcTimestamp = true; });
     builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
     builder.Services.AddHsts(options =>
     {
@@ -16,6 +18,7 @@ if (!builder.Environment.IsDevelopment())
 }
 builder.Services.AddControllers();
 builder.Services.AddGymErrors();
+builder.Services.AddGymObservability();
 builder.Services.AddGymOptions();
 builder.Services.AddGymTime();
 builder.Services.AddGymPersistence(builder.Configuration);
@@ -29,6 +32,7 @@ builder.Services.AddAuthServices();
 builder.Services.AddAttendanceServices();
 
 var app = builder.Build();
+app.UseGymObservability();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseExceptionHandler();
 if (app.Environment.IsDevelopment())
