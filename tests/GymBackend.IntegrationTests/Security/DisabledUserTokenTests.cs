@@ -14,7 +14,7 @@ public sealed class DisabledUserTokenTests(GymApiFactory factory)
         using var admin = await factory.CreateAdminClientAsync();
         _ = await Api.Qr(client);
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
-        using var denied = await client.GetAsync("/api/qr/my-code", Ct);
+        using var denied = await client.GetAsync("/api/v1/qr/my-code", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         await Expect(await Status(admin, user.UserId, true), HttpStatusCode.OK);
         _ = await Api.Qr(client);

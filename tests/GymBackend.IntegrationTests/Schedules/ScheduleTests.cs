@@ -12,7 +12,7 @@ public sealed class ScheduleTests(GymApiFactory factory)
     {
         var date = GymTime.Tomorrow();
         using var anonymous = factory.CreateClient();
-        using var denied = await anonymous.GetAsync("/api/schedules", Ct);
+        using var denied = await anonymous.GetAsync("/api/v1/schedules", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         var first = await factory.CreateClientUserAsync();
         using var one = first.Client;
@@ -27,8 +27,8 @@ public sealed class ScheduleTests(GymApiFactory factory)
         });
         var reservation = await Reservation(one, slot.Id, date);
         await Reservation(two, slot.Id, date);
-        await Expect(await one.DeleteAsync($"/api/reservations/{reservation.GetProperty("id").GetInt32()}", Ct), HttpStatusCode.OK);
-        var slots = (await Expect(await one.GetAsync($"/api/schedules?date={date:yyyy-MM-dd}", Ct), HttpStatusCode.OK)).EnumerateArray().ToArray();
+        await Expect(await one.DeleteAsync($"/api/v1/reservations/{reservation.GetProperty("id").GetInt32()}", Ct), HttpStatusCode.OK);
+        var slots = (await Expect(await one.GetAsync($"/api/v1/schedules?date={date:yyyy-MM-dd}", Ct), HttpStatusCode.OK)).EnumerateArray().ToArray();
         Assert.DoesNotContain(slots, s => s.GetProperty("id").GetInt32() == disabled.Id);
         var own = Assert.Single(slots, s => s.GetProperty("id").GetInt32() == slot.Id);
         Assert.Equal(1, own.GetProperty("reservedCount").GetInt32());

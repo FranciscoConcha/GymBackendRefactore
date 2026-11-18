@@ -8,7 +8,7 @@ using GymBackend.Extensions;
 namespace GymBackend.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route(ApiRoutes.V1)]
 [Authorize]
 public class ReservationsController : ControllerBase
 {

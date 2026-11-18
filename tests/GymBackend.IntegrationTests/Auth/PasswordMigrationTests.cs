@@ -42,7 +42,7 @@ public sealed class PasswordMigrationTests(GymApiFactory factory)
             return true;
         });
         using var client = factory.CreateClient();
-        var endpoint = admin ? "/api/auth/admin-login" : "/api/auth/login";
+        var endpoint = admin ? "/api/v1/auth/admin-login" : "/api/v1/auth/login";
         object Credentials(string secret) => admin ? new { username, password = secret } : (object)new { rut, password = secret };
         async Task<string> StoredHash() => await factory.WithDbAsync(db => db.Users.Where(u => u.Rut == rut).Select(u => u.PasswordHash).SingleAsync(Ct));
 

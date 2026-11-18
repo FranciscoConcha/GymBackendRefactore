@@ -128,6 +128,8 @@ Reglas de negocio de reserva (H5):
 | `feat/f5-api-v1` | Rutas versionadas `/api/v1/...`; pruebas actualizadas | Las rutas antiguas responden 404 o redirección documentada |
 | `feat/f5-validation` | Validación de DTOs (DataAnnotations); RUT con dígito verificador (según la decisión de §5); reglas de cancelación (D13) | 400 con ProblemDetails |
 
+Decisiones H6 (2026-11-18): RUT canónico `12345678-5` (cuerpo 7-8 dígitos, guion, DV `0-9`/`K`; la entrada acepta puntos y guion); sin conversión de RUT heredados (H5: sin datos que conservar); rutas antiguas `/api/...` → 404. Estado: hashing, login deshabilitado, claves/JWT, rate limiting y RUT en PR #21; `/api/v1` en `feat/f5-api-v1`. Pendiente para F6: `ForwardedHeaders` para que el límite por IP funcione detrás de un proxy.
+
 ### F6 — Calidad, documentación y entrega → **H7**, **H8**
 | Rama | Tarea | Criterio |
 |---|---|---|

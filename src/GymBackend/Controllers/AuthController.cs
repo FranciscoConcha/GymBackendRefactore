@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace GymBackend.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route(ApiRoutes.V1)]
 public class AuthController(IAuthService authService, IUserService userService) : ControllerBase
 {
     [HttpPost("register")]

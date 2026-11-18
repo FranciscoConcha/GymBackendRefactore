@@ -102,7 +102,7 @@ public sealed class ReservationDateTests(GymApiFactory factory)
         await Reservation(client, slot.Id, Today.AddDays(7));
         foreach (var date in new[] { Today, Today.AddDays(7) })
         {
-            var schedules = await Expect(await client.GetAsync($"/api/schedules?date={date:yyyy-MM-dd}", Ct), HttpStatusCode.OK);
+            var schedules = await Expect(await client.GetAsync($"/api/v1/schedules?date={date:yyyy-MM-dd}", Ct), HttpStatusCode.OK);
             var own = Assert.Single(schedules.EnumerateArray(), s => s.GetProperty("id").GetInt32() == slot.Id);
             Assert.Equal(1, own.GetProperty("reservedCount").GetInt32());
         }
@@ -122,9 +122,9 @@ public sealed class ReservationDateTests(GymApiFactory factory)
         var expected = new[] { newerLate.Id, newerEarly.Id, older.Id };
         foreach (var (actor, path) in new[]
         {
-            (client, $"/api/reservations/user/{user.UserId}"),
-            (admin, $"/api/reservations/user/{user.UserId}"),
-            (admin, "/api/reservations"),
+            (client, $"/api/v1/reservations/user/{user.UserId}"),
+            (admin, $"/api/v1/reservations/user/{user.UserId}"),
+            (admin, "/api/v1/reservations"),
         })
         {
             var result = await Expect(await actor.GetAsync(path, Ct), HttpStatusCode.OK);
@@ -149,9 +149,9 @@ public sealed class ReservationDateTests(GymApiFactory factory)
         admin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
         var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(9, 0), new TimeOnly(10, 0));
         var reservation = await factory.InsertReservationAsync(user.UserId, slot.Id, Today.AddDays(days));
-        await Expect(await client.DeleteAsync($"/api/reservations/{reservation.Id}", Ct), HttpStatusCode.BadRequest,
+        await Expect(await client.DeleteAsync($"/api/v1/reservations/{reservation.Id}", Ct), HttpStatusCode.BadRequest,
             "La reserva ya no se puede cancelar porque el bloque comenzó.");
-        var cancelled = await Expect(await admin.DeleteAsync($"/api/reservations/{reservation.Id}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
+        var cancelled = await Expect(await admin.DeleteAsync($"/api/v1/reservations/{reservation.Id}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
         Assert.Equal("Cancelado", cancelled.GetProperty("reservation").GetProperty("status").GetString());
     }
 
@@ -167,6 +167,6 @@ public sealed class ReservationDateTests(GymApiFactory factory)
         var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(9, 0), new TimeOnly(10, 0));
         var reservation = await factory.InsertReservationAsync(user.UserId, slot.Id, date, status);
         foreach (var actor in new[] { client, admin })
-            await Expect(await actor.DeleteAsync($"/api/reservations/{reservation.Id}", Ct), HttpStatusCode.BadRequest, "Solo se pueden cancelar reservas activas.");
+            await Expect(await actor.DeleteAsync($"/api/v1/reservations/{reservation.Id}", Ct), HttpStatusCode.BadRequest, "Solo se pueden cancelar reservas activas.");
     }
 }

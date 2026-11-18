@@ -22,20 +22,20 @@ public sealed class ReservationTests(GymApiFactory factory)
         using var anonymous = factory.CreateClient();
         var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
         var reservation = await Reservation(client, slot.Id, date);
-        using var denied = await client.GetAsync("/api/reservations", Ct);
+        using var denied = await client.GetAsync("/api/v1/reservations", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
-        var all = await Expect(await admin.GetAsync("/api/reservations", Ct), HttpStatusCode.OK);
+        var all = await Expect(await admin.GetAsync("/api/v1/reservations", Ct), HttpStatusCode.OK);
         Assert.Contains(all.EnumerateArray(), r => r.GetProperty("id").GetInt32() == reservation.GetProperty("id").GetInt32());
-        foreach (var path in new[] { "/api/reservations", $"/api/reservations/user/{user.UserId}" })
+        foreach (var path in new[] { "/api/v1/reservations", $"/api/v1/reservations/user/{user.UserId}" })
         {
             using var response = await anonymous.GetAsync(path, Ct);
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
-        var own = await Expect(await client.GetAsync($"/api/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK);
+        var own = await Expect(await client.GetAsync($"/api/v1/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK);
         Assert.Contains(own.EnumerateArray(), r => r.GetProperty("id").GetInt32() == reservation.GetProperty("id").GetInt32());
-        using var forbidden = await otherClient.GetAsync($"/api/reservations/user/{user.UserId}", Ct);
+        using var forbidden = await otherClient.GetAsync($"/api/v1/reservations/user/{user.UserId}", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
-        await Expect(await admin.GetAsync($"/api/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK);
+        await Expect(await admin.GetAsync($"/api/v1/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK);
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public sealed class ReservationTests(GymApiFactory factory)
         var reservation = await Reservation(one, slot.Id, date);
         await Reservation(two, slot.Id, date);
         await Expect(await Reserve(three, slot.Id, date), HttpStatusCode.BadRequest, "No quedan cupos disponibles para este bloque.");
-        await Expect(await one.DeleteAsync($"/api/reservations/{reservation.GetProperty("id").GetInt32()}", Ct), HttpStatusCode.OK);
+        await Expect(await one.DeleteAsync($"/api/v1/reservations/{reservation.GetProperty("id").GetInt32()}", Ct), HttpStatusCode.OK);
         await Reservation(three, slot.Id, date);
     }
 
@@ -87,7 +87,7 @@ public sealed class ReservationTests(GymApiFactory factory)
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
         var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
         // D2 corregido en F5: el token previo de un usuario deshabilitado deja de ser válido.
-        using var response = await client.PostAsJsonAsync("/api/reservations",
+        using var response = await client.PostAsJsonAsync("/api/v1/reservations",
             new { scheduleSlotId = slot.Id, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }, Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -104,15 +104,15 @@ public sealed class ReservationTests(GymApiFactory factory)
         using var anonymous = factory.CreateClient();
         var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
         var id = (await Reservation(client, slot.Id, date)).GetProperty("id").GetInt32();
-        using var denied = await anonymous.DeleteAsync($"/api/reservations/{id}", Ct);
+        using var denied = await anonymous.DeleteAsync($"/api/v1/reservations/{id}", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
-        await Expect(await client.DeleteAsync($"/api/reservations/{int.MaxValue}", Ct), HttpStatusCode.NotFound, "Reserva no encontrada.");
-        using var forbidden = await otherClient.DeleteAsync($"/api/reservations/{id}", Ct);
+        await Expect(await client.DeleteAsync($"/api/v1/reservations/{int.MaxValue}", Ct), HttpStatusCode.NotFound, "Reserva no encontrada.");
+        using var forbidden = await otherClient.DeleteAsync($"/api/v1/reservations/{id}", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
-        var cancelled = await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
+        var cancelled = await Expect(await client.DeleteAsync($"/api/v1/reservations/{id}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
         Assert.Equal("Cancelado", cancelled.GetProperty("reservation").GetProperty("status").GetString());
         var nextId = (await Reservation(client, slot.Id, date)).GetProperty("id").GetInt32();
-        var byAdmin = await Expect(await admin.DeleteAsync($"/api/reservations/{nextId}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
+        var byAdmin = await Expect(await admin.DeleteAsync($"/api/v1/reservations/{nextId}", Ct), HttpStatusCode.OK, "Reserva cancelada correctamente.");
         Assert.Equal("Cancelado", byAdmin.GetProperty("reservation").GetProperty("status").GetString());
     }
 
@@ -130,6 +130,6 @@ public sealed class ReservationTests(GymApiFactory factory)
             reservation.Status = ReservationStatus.Attended;
             await db.SaveChangesAsync(Ct);
         });
-        await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.BadRequest, "Solo se pueden cancelar reservas activas.");
+        await Expect(await client.DeleteAsync($"/api/v1/reservations/{id}", Ct), HttpStatusCode.BadRequest, "Solo se pueden cancelar reservas activas.");
     }
 }
