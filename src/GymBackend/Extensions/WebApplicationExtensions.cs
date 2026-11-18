@@ -1,5 +1,5 @@
-using GymBackend.Data;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace GymBackend.Extensions;
 
@@ -7,12 +7,23 @@ public static class WebApplicationExtensions
 {
     public static WebApplication MapHealthEndpoints(this WebApplication app)
     {
-        app.MapGet("/health/live", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
-        app.MapGet("/health/ready", async (AppDbContext db) =>
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
         {
-            try { return await db.Database.CanConnectAsync() ? Results.Ok(new { status = "ok" }) : Results.StatusCode(503); }
-            catch { return Results.StatusCode(503); }
+            Predicate = _ => false,
+            ResponseWriter = WriteHealthResponseAsync,
+        }).AllowAnonymous();
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("ready"),
+            ResponseWriter = WriteHealthResponseAsync,
         }).AllowAnonymous();
         return app;
+    }
+
+    private static Task WriteHealthResponseAsync(HttpContext context, HealthReport report)
+    {
+        var healthy = report.Status == HealthStatus.Healthy;
+        context.Response.StatusCode = healthy ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable;
+        return context.Response.WriteAsJsonAsync(new { status = healthy ? "ok" : "unavailable" }, context.RequestAborted);
     }
 }

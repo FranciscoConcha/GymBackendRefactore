@@ -15,7 +15,8 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddGymErrors(this IServiceCollection services)
     {
-        services.AddProblemDetails();
+        services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
+            ctx.ProblemDetails.Extensions["correlationId"] = ctx.HttpContext.TraceIdentifier);
         services.AddExceptionHandler<GymBackend.Errors.GlobalExceptionHandler>();
         return services;
     }
