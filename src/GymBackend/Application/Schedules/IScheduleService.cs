@@ -1,4 +1,4 @@
-﻿using GymBackend.Application.Common;
+using GymBackend.Application.Common;
 using GymBackend.DTOs;
 
 namespace GymBackend.Application.Schedules;

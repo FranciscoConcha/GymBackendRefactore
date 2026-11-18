@@ -1,4 +1,4 @@
-﻿namespace GymBackend.DTOs;
+namespace GymBackend.DTOs;
 
 public class CreateReservationRequest
 {

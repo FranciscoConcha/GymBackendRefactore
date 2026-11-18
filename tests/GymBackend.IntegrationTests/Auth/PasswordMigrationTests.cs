@@ -27,14 +27,18 @@ public sealed class PasswordMigrationTests(GymApiFactory factory)
         const string password = "MigrationPassword123!";
         var oldHash = identityV2
             ? new PasswordHasher<User>(Microsoft.Extensions.Options.Options.Create(new PasswordHasherOptions
-                { CompatibilityMode = PasswordHasherCompatibilityMode.IdentityV2 })).HashPassword(new User(), password)
+            { CompatibilityMode = PasswordHasherCompatibilityMode.IdentityV2 })).HashPassword(new User(), password)
             : Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password)));
         await factory.WithDbAsync(async db =>
         {
             db.Users.Add(new User
             {
-                Rut = rut, Name = "Migration", Email = $"{username}@example.test",
-                Username = admin ? username : "", PasswordHash = oldHash, Enabled = true,
+                Rut = rut,
+                Name = "Migration",
+                Email = $"{username}@example.test",
+                Username = admin ? username : "",
+                PasswordHash = oldHash,
+                Enabled = true,
                 Role = admin ? Roles.Admin : Roles.Client,
                 UserType = admin ? UserTypes.Administrator : UserTypes.Student,
             });

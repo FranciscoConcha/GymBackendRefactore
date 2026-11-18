@@ -7,14 +7,14 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using GymBackend.Data;
+using GymBackend.Domain;
 using GymBackend.Models;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Time.Testing;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
-using GymBackend.Domain;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.PostgreSql;
 
@@ -125,7 +125,11 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         using var admin = await CreateAdminClientAsync();
         using var registration = await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
-            rut, name = $"Test {rut}", email = $"user-{rut}@example.test", password, userType,
+            rut,
+            name = $"Test {rut}",
+            email = $"user-{rut}@example.test",
+            password,
+            userType,
         }, JsonOptions, TestContext.Current.CancellationToken);
         var registered = await ReadAuthAsync(registration);
         var userId = registered.User?.Id
@@ -191,8 +195,12 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             var slot = new ScheduleSlot
             {
-                Day = day, StartTime = start, EndTime = end, Capacity = capacity,
-                Zone = $"Zona-{Guid.NewGuid():N}", Enabled = true,
+                Day = day,
+                StartTime = start,
+                EndTime = end,
+                Capacity = capacity,
+                Zone = $"Zona-{Guid.NewGuid():N}",
+                Enabled = true,
             };
             db.ScheduleSlots.Add(slot);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
@@ -204,8 +212,11 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             var reservation = new Reservation
             {
-                UserId = userId, ScheduleSlotId = slotId, Date = date,
-                Status = status, CreatedAt = DateTime.UtcNow,
+                UserId = userId,
+                ScheduleSlotId = slotId,
+                Date = date,
+                Status = status,
+                CreatedAt = DateTime.UtcNow,
             };
             db.Reservations.Add(reservation);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);

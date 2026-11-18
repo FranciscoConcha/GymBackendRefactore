@@ -1,4 +1,4 @@
-﻿using GymBackend.Domain;
+using GymBackend.Domain;
 namespace GymBackend.Models;
 
 public class Reservation

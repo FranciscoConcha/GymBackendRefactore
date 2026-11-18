@@ -1,4 +1,4 @@
-﻿namespace GymBackend.Options;
+namespace GymBackend.Options;
 
 public enum ReservationHorizonUnit { CalendarDays, BusinessDays }
 

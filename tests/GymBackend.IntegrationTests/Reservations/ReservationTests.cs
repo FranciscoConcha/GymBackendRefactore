@@ -1,7 +1,7 @@
-using GymBackend.Domain;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using GymBackend.Domain;
 using GymBackend.IntegrationTests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using static GymBackend.IntegrationTests.Infrastructure.Api;

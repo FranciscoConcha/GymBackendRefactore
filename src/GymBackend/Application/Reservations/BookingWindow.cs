@@ -1,4 +1,4 @@
-﻿using GymBackend.Options;
+using GymBackend.Options;
 
 namespace GymBackend.Application.Reservations;
 

@@ -1,12 +1,12 @@
-﻿using GymBackend.Application.Common;
-using GymBackend.DTOs;
+using GymBackend.Application.Common;
 using GymBackend.Data;
 using GymBackend.Domain;
+using GymBackend.DTOs;
 using GymBackend.Models;
-using GymBackend.Time;
 using GymBackend.Options;
-using Microsoft.Extensions.Options;
+using GymBackend.Time;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace GymBackend.Application.Reservations;
 

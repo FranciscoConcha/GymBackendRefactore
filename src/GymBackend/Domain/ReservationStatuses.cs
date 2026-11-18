@@ -1,4 +1,4 @@
-﻿namespace GymBackend.Domain;
+namespace GymBackend.Domain;
 
 public static class ReservationStatuses
 {

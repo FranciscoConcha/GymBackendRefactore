@@ -74,8 +74,11 @@ public sealed class ReservationConcurrencyTests(GymApiFactory factory)
             for (var i = 0; i < 6; i++) clients.Add(await factory.CreateAdminClientAsync());
             var responses = await Together(clients, client => client.PostAsJsonAsync("/api/v1/auth/register", new
             {
-                rut, name = "Concurrent registration", email = $"{Guid.NewGuid():N}@example.test",
-                password = "Concurrent-Test-123!", userType = "Estudiante",
+                rut,
+                name = "Concurrent registration",
+                email = $"{Guid.NewGuid():N}@example.test",
+                password = "Concurrent-Test-123!",
+                userType = "Estudiante",
             }, Api.JsonOptions, Api.Ct));
             try
             {

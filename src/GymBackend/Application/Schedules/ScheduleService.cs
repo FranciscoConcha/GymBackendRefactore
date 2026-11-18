@@ -1,10 +1,10 @@
-﻿using GymBackend.Application.Common;
+using System.Globalization;
+using GymBackend.Application.Common;
 using GymBackend.Data;
 using GymBackend.Domain;
 using GymBackend.DTOs;
 using GymBackend.Time;
 using Microsoft.EntityFrameworkCore;
-using System.Globalization;
 
 namespace GymBackend.Application.Schedules;
 

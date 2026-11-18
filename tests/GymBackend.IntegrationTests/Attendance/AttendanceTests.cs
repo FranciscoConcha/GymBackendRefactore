@@ -1,10 +1,10 @@
-using GymBackend.Domain;
 using System.Globalization;
-using Microsoft.Extensions.Time.Testing;
 using System.Net;
-using GymBackend.IntegrationTests.Infrastructure;
 using GymBackend.Application.Qr;
+using GymBackend.Domain;
+using GymBackend.IntegrationTests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Time.Testing;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
 
 namespace GymBackend.IntegrationTests.Attendance;

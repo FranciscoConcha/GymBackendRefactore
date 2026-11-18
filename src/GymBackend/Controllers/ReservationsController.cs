@@ -1,9 +1,9 @@
-﻿using GymBackend.DTOs;
-using GymBackend.Domain;
 using GymBackend.Application.Reservations;
+using GymBackend.Domain;
+using GymBackend.DTOs;
+using GymBackend.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using GymBackend.Extensions;
 
 namespace GymBackend.Controllers;
 

@@ -1,6 +1,6 @@
 using GymBackend.Application.Attendance;
-using GymBackend.DTOs;
 using GymBackend.Domain;
+using GymBackend.DTOs;
 using GymBackend.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

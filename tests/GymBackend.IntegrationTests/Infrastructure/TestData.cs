@@ -1,6 +1,6 @@
 using System.Globalization;
-using GymBackend.Application.Auth;
 using System.Security.Cryptography;
+using GymBackend.Application.Auth;
 
 namespace GymBackend.IntegrationTests.Infrastructure;
 
