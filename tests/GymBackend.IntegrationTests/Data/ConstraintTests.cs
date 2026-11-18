@@ -10,9 +10,11 @@ public sealed class ConstraintTests(GymApiFactory factory)
 {
     private static User NewUser() => new()
     {
-        Rut = TestData.NextRut(), Name = "Constraint test",
+        Rut = TestData.NextRut(),
+        Name = "Constraint test",
         Email = $"constraint-{Guid.NewGuid():N}@example.test",
-        Username = "", PasswordHash = "test-hash",
+        Username = "",
+        PasswordHash = "test-hash",
     };
 
     [Theory]
@@ -119,8 +121,11 @@ public sealed class ConstraintTests(GymApiFactory factory)
         {
             db.ScheduleSlots.Add(new ScheduleSlot
             {
-                Day = slot.Day, StartTime = slot.StartTime, EndTime = slot.EndTime,
-                Zone = slot.Zone, Capacity = slot.Capacity,
+                Day = slot.Day,
+                StartTime = slot.StartTime,
+                EndTime = slot.EndTime,
+                Zone = slot.Zone,
+                Capacity = slot.Capacity,
             });
             await db.SaveChangesAsync(Ct);
         }));

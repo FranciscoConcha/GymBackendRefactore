@@ -1,5 +1,5 @@
-using System.Net;
 using System.Globalization;
+using System.Net;
 using GymBackend.Domain;
 using GymBackend.IntegrationTests.Infrastructure;
 using Microsoft.Extensions.Time.Testing;

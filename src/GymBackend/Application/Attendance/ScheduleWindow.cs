@@ -1,4 +1,4 @@
-﻿namespace GymBackend.Application.Attendance;
+namespace GymBackend.Application.Attendance;
 
 public static class ScheduleWindow
 {

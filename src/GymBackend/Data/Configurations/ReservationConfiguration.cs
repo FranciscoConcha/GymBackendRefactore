@@ -1,4 +1,4 @@
-﻿using GymBackend.Domain;
+using GymBackend.Domain;
 using GymBackend.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;

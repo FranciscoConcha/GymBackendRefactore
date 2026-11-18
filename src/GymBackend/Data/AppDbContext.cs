@@ -1,4 +1,4 @@
-﻿using GymBackend.Models;
+using GymBackend.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace GymBackend.Data;

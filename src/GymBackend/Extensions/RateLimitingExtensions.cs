@@ -1,5 +1,5 @@
-using System.Threading.RateLimiting;
 using System.Globalization;
+using System.Threading.RateLimiting;
 using GymBackend.DTOs;
 using GymBackend.Options;
 using Microsoft.AspNetCore.RateLimiting;

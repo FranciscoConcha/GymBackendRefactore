@@ -1,3 +1,3 @@
-﻿namespace GymBackend.Domain;
+namespace GymBackend.Domain;
 
 public enum ReservationStatus { Reserved, Cancelled, Attended }

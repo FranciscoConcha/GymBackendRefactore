@@ -1,7 +1,7 @@
 using GymBackend.Data;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GymBackend.Errors;
 

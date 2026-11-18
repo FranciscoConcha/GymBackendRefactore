@@ -1,4 +1,4 @@
-﻿using GymBackend.Models;
+using GymBackend.Models;
 
 namespace GymBackend.DTOs;
 

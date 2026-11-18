@@ -1,13 +1,13 @@
-﻿using GymBackend.Data;
-using GymBackend.Time;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Security.Claims;
+using System.Text;
+using GymBackend.Data;
 using GymBackend.Options;
+using GymBackend.Time;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
-using System.Security.Claims;
 
 namespace GymBackend.Extensions;
 

@@ -1,4 +1,4 @@
-﻿using GymBackend.Application.Common;
+using GymBackend.Application.Common;
 using GymBackend.Application.Qr;
 using GymBackend.Data;
 using GymBackend.Domain;

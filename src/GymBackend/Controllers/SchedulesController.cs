@@ -1,5 +1,5 @@
-﻿using GymBackend.DTOs;
 using GymBackend.Application.Schedules;
+using GymBackend.DTOs;
 using GymBackend.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

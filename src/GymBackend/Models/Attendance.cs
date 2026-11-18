@@ -1,4 +1,4 @@
-﻿namespace GymBackend.Models;
+namespace GymBackend.Models;
 
 public class Attendance
 {

@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
@@ -6,6 +5,7 @@ using System.Text;
 using GymBackend.Domain;
 using GymBackend.IntegrationTests.Infrastructure;
 using GymBackend.Models;
+using Microsoft.EntityFrameworkCore;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
 
 namespace GymBackend.IntegrationTests.Auth;
