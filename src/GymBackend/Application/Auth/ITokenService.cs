@@ -4,5 +4,5 @@ namespace GymBackend.Application.Auth;
 
 public interface ITokenService
 {
-    string CreateToken(User user);
+    IssuedToken CreateToken(User user);
 }

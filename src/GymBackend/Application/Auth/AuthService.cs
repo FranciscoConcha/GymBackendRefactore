@@ -8,7 +8,7 @@ namespace GymBackend.Application.Auth;
 
 public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwordHasher, ITokenService tokenService) : IAuthService
 {
-    public async Task<ServiceResult<AuthResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default)
+    public async Task<ServiceResult<AuthSession>> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
         if (!RutFormat.TryNormalize(request.Rut, out var rut))
         {
@@ -36,10 +36,10 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
 
         await RehashIfNeededAsync(user, request.Password, match.Check, ct);
 
-        return ServiceResult<AuthResponse>.Success(new AuthResponse("Login correcto.", tokenService.CreateToken(user), UserResponse.From(user)));
+        return ServiceResult<AuthSession>.Success(new AuthSession("Login correcto.", tokenService.CreateToken(user), UserResponse.From(user)));
     }
 
-    public async Task<ServiceResult<AuthResponse>> AdminLoginAsync(AdminLoginRequest request, CancellationToken ct = default)
+    public async Task<ServiceResult<AuthSession>> AdminLoginAsync(AdminLoginRequest request, CancellationToken ct = default)
     {
         var username = request.Username.Trim().ToLowerInvariant();
 
@@ -64,7 +64,7 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
 
         await RehashIfNeededAsync(admin, request.Password, match.Check, ct);
 
-        return ServiceResult<AuthResponse>.Success(new AuthResponse("Login de administrador correcto.", tokenService.CreateToken(admin), UserResponse.From(admin)));
+        return ServiceResult<AuthSession>.Success(new AuthSession("Login de administrador correcto.", tokenService.CreateToken(admin), UserResponse.From(admin)));
     }
 
     private async Task RehashIfNeededAsync(GymBackend.Models.User user, string password, PasswordCheck check, CancellationToken ct)

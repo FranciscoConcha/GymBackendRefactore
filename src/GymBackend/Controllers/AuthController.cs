@@ -1,7 +1,10 @@
+using System.Security.Claims;
 using GymBackend.Application.Auth;
+using GymBackend.Application.Common;
 using GymBackend.Domain;
 using GymBackend.DTOs;
 using GymBackend.Extensions;
+using GymBackend.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -26,21 +29,51 @@ public class AuthController(IAuthService authService, IUserService userService) 
     [HttpPost("login")]
     [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
     [ProducesResponseType<AuthResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login(LoginRequest request, CancellationToken ct = default)
     {
-        return this.ToActionResult(await authService.LoginAsync(request, ct));
+        return CompleteLogin(await authService.LoginAsync(request, ct));
     }
 
     [HttpPost("admin-login")]
     [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
     [ProducesResponseType<AuthResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> AdminLogin(AdminLoginRequest request, CancellationToken ct = default)
     {
-        return this.ToActionResult(await authService.AdminLoginAsync(request, ct));
+        return CompleteLogin(await authService.AdminLoginAsync(request, ct));
+    }
+
+    private IActionResult CompleteLogin(ServiceResult<AuthSession> result)
+    {
+        if (!result.IsSuccess) return this.ToActionResult(result.Error!);
+        var session = result.Value!;
+        SessionCookie.Append(Response, session.Token.Value, session.Token.ExpiresAt);
+        return Ok(new AuthResponse(session.Message, session.User, session.Token.ExpiresAt));
+    }
+
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status403Forbidden)]
+    public IActionResult Logout()
+    {
+        SessionCookie.Delete(Response);
+        return Ok(new MessageResponse("Sesión cerrada."));
+    }
+
+    [HttpGet("me")]
+    [Authorize]
+    [ProducesResponseType<UserResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Me(CancellationToken ct = default)
+    {
+        if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)) return Unauthorized();
+        return this.ToActionResult(await userService.GetCurrentAsync(id, ct));
     }
 
     [HttpGet("users")]

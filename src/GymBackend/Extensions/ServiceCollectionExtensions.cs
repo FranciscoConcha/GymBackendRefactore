@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text;
 using GymBackend.Data;
 using GymBackend.Options;
+using GymBackend.Security;
 using GymBackend.Time;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -47,7 +48,9 @@ public static class ServiceCollectionExtensions
             .Validate<IOptions<JwtOptions>>((o, jwt) => !string.Equals(o.SigningKey, jwt.Value.Key, StringComparison.Ordinal),
                 "Qr:SigningKey debe ser distinta de Jwt:Key.")
             .ValidateOnStart();
-        services.AddOptions<CorsSettings>().BindConfiguration(CorsSettings.SectionName).ValidateOnStart();
+        services.AddOptions<CorsSettings>().BindConfiguration(CorsSettings.SectionName)
+            .Validate(o => !o.AllowedOrigins.Contains("*"), "Cors:AllowedOrigins no permite *.")
+            .ValidateOnStart();
         services.AddOptions<DatabaseOptions>().BindConfiguration(DatabaseOptions.SectionName).ValidateOnStart();
         services.AddOptions<BootstrapOptions>().BindConfiguration(BootstrapOptions.SectionName).ValidateOnStart();
         return services;
@@ -81,6 +84,12 @@ public static class ServiceCollectionExtensions
         {
             bearer.Events = new JwtBearerEvents
             {
+                OnMessageReceived = context =>
+                {
+                    if (!context.Request.Headers.ContainsKey("Authorization"))
+                        context.Token = context.Request.Cookies[SessionCookie.Name];
+                    return Task.CompletedTask;
+                },
                 OnTokenValidated = async context =>
                 {
                     if (!int.TryParse(context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
@@ -118,7 +127,7 @@ public static class ServiceCollectionExtensions
                 cors.AddPolicy("Frontend", policy =>
                 {
                     var origins = settings.Value.AllowedOrigins;
-                    if (origins.Length > 0) policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod();
+                    if (origins.Length > 0) policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
                 }));
         return services;
     }

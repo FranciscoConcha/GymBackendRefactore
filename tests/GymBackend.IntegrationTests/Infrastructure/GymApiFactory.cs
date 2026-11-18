@@ -75,6 +75,16 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }
     }
 
+    // CreateClient reasigna BaseAddress desde ClientOptions después de ConfigureClient: se fija aquí para que
+    // la cookie Secure de sesión viaje por https (los hosts derivados copian ClientOptions).
+    public GymApiFactory() => ClientOptions.BaseAddress = new Uri("https://localhost/");
+
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.DefaultRequestHeaders.Add("X-Gym-Csrf", "1");
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
         builder.UseEnvironment("Development");
 
@@ -106,8 +116,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login",
                 new { username = AdminUsername, password = AdminPassword }, JsonOptions, TestContext.Current.CancellationToken);
-            var auth = await ReadAuthAsync(response);
-            SetToken(client, auth.Token);
+            _ = await ReadAuthAsync(response);
+            SetToken(client, ReadSessionToken(response));
             return client;
         }
         catch
@@ -138,8 +148,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         try
         {
             using var login = await client.PostAsJsonAsync("/api/v1/auth/login", new { rut, password }, JsonOptions, TestContext.Current.CancellationToken);
-            var auth = await ReadAuthAsync(login);
-            SetToken(client, auth.Token);
+            _ = await ReadAuthAsync(login);
+            SetToken(client, ReadSessionToken(login));
             return (client, userId, rut, password);
         }
         catch
@@ -235,6 +245,11 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         return await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, TestContext.Current.CancellationToken)
             ?? throw new InvalidOperationException("La API devolvió una respuesta de autenticación vacía.");
     }
+
+    private static string ReadSessionToken(HttpResponseMessage response) =>
+        response.Headers.GetValues("Set-Cookie")
+            .Single(value => value.StartsWith("__Host-gym_session=", StringComparison.Ordinal))
+            .Split(';')[0].Split('=', 2)[1];
 
     private static void SetToken(HttpClient client, string? token)
     {
