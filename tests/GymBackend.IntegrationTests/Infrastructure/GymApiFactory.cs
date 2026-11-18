@@ -155,7 +155,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public string CreateJwt(int userId, string role, string rut, string name = "Test", DateTime? expires = null)
         => CreateJwt(userId.ToString(CultureInfo.InvariantCulture), role, rut, name, expires);
 
-    public string CreateJwt(string? userId, string role, string rut, string name = "Test", DateTime? expires = null)
+    public string CreateJwt(string? userId, string role, string rut, string name = "Test", DateTime? expires = null,
+        string? issuer = "gym-tests", string? audience = "gym-tests-clients", string? signingKey = null)
     {
         var claims = new List<Claim>
         {
@@ -167,8 +168,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         if (userId is not null)
             claims.Add(new Claim(ClaimTypes.NameIdentifier, userId));
         var credentials = new SigningCredentials(
-            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey)), SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(claims: claims,
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey ?? JwtKey)), SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(issuer: issuer, audience: audience, claims: claims,
             expires: expires ?? DateTime.UtcNow.AddHours(8), signingCredentials: credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
     }

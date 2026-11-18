@@ -37,15 +37,15 @@ namespace GymBackend.Data.Migrations
                         .HasColumnType("date");
 
                     b.Property<string>("EntryAdminRut")
-                        .HasMaxLength(9)
-                        .HasColumnType("character varying(9)");
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
                     b.Property<DateTime?>("EntryTime")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ExitAdminRut")
-                        .HasMaxLength(9)
-                        .HasColumnType("character varying(9)");
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
                     b.Property<DateTime?>("ExitTime")
                         .HasColumnType("timestamp with time zone");
@@ -174,8 +174,8 @@ namespace GymBackend.Data.Migrations
 
                     b.Property<string>("Rut")
                         .IsRequired()
-                        .HasMaxLength(9)
-                        .HasColumnType("character varying(9)");
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
                     b.Property<string>("UserType")
                         .IsRequired()

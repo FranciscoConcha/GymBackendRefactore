@@ -11,14 +11,13 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
 {
     public async Task<ServiceResult<UserMessageResponse>> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
     {
-        var rut = request.Rut.Trim();
         var name = request.Name.Trim();
         var email = request.Email.Trim().ToLowerInvariant();
         var userType = request.UserType.Trim();
 
-        if (!RutFormat.IsValid(rut))
+        if (!RutFormat.TryNormalize(request.Rut, out var rut))
         {
-            return ServiceError.Validation("El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion.");
+            return ServiceError.Validation(RutFormat.ValidationMessage);
         }
 
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(request.Password))

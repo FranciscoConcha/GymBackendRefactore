@@ -1,4 +1,4 @@
-﻿using GymBackend.Models;
+using GymBackend.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -11,8 +11,8 @@ public sealed class AttendanceConfiguration : IEntityTypeConfiguration<Attendanc
         builder.Property(x => x.Date).HasColumnType("date");
         builder.Property(x => x.EntryTime).HasColumnType("timestamp with time zone");
         builder.Property(x => x.ExitTime).HasColumnType("timestamp with time zone");
-        builder.Property(x => x.EntryAdminRut).HasMaxLength(9);
-        builder.Property(x => x.ExitAdminRut).HasMaxLength(9);
+        builder.Property(x => x.EntryAdminRut).HasMaxLength(10);
+        builder.Property(x => x.ExitAdminRut).HasMaxLength(10);
         builder.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(x => x.Reservation).WithMany().HasForeignKey(x => x.ReservationId).OnDelete(DeleteBehavior.SetNull);
         builder.HasIndex(x => new { x.UserId, x.Date }).IsUnique();

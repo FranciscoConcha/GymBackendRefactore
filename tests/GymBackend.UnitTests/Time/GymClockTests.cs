@@ -61,7 +61,8 @@ public sealed class GymClockTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(
-            new Dictionary<string, string?> { ["Gym:TimeZone"] = "Invalid/Zone", ["Jwt:Key"] = new string('x', 32) }).Build());
+            new Dictionary<string, string?> { ["Gym:TimeZone"] = "Invalid/Zone", ["Jwt:Key"] = new string('x', 32),
+                ["Jwt:Issuer"] = "tests", ["Jwt:Audience"] = "clients", ["Qr:SigningKey"] = new string('q', 32) }).Build());
         services.AddGymOptions();
         await using var provider = services.BuildServiceProvider();
         var error = Assert.Throws<OptionsValidationException>(() =>

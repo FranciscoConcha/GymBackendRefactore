@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
+using GymBackend.Application.Auth;
 using GymBackend.IntegrationTests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
@@ -31,7 +30,7 @@ public sealed class AuthTests(GymApiFactory factory)
     {
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await admin.PostAsJsonAsync("/api/auth/register", Registration(rut), JsonOptions, Ct), HttpStatusCode.BadRequest,
-            "El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion.");
+            RutFormat.ValidationMessage);
     }
 
     [Theory]
@@ -67,8 +66,7 @@ public sealed class AuthTests(GymApiFactory factory)
     }
 
     [Fact]
-    [Trait("Category", "LegacyBehavior")]
-    public async Task Register_Valido_NormalizaUsuarioYGuardaSha256()
+    public async Task Register_Valido_NormalizaUsuarioYGuardaPbkdf2()
     {
         using var admin = await factory.CreateAdminClientAsync();
         var rut = TestData.NextRut();
@@ -79,15 +77,15 @@ public sealed class AuthTests(GymApiFactory factory)
         Assert.Equal("", user.GetProperty("username").GetString());
         Assert.True(user.GetProperty("enabled").GetBoolean());
         Assert.Equal($"user-{rut}@example.test", user.GetProperty("email").GetString());
-        // Comportamiento actual (D1); cambia en F5.
         var hash = await factory.WithDbAsync(db => db.Users.Where(u => u.Rut == rut).Select(u => u.PasswordHash).SingleAsync(Ct));
-        Assert.Equal(Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password))), hash);
+        Assert.NotEqual(32, Convert.FromBase64String(hash).Length);
+        Assert.Equal(PasswordCheck.Success, new Pbkdf2PasswordHasher().Verify(password, hash));
     }
 
     [Theory]
-    [InlineData("1234567", "password", HttpStatusCode.BadRequest, "El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion.")]
-    [InlineData("12.345.678-9", "password", HttpStatusCode.BadRequest, "El RUT debe tener entre 8 y 9 dígitos, sin puntos ni guion.")]
-    [InlineData("12345678", "", HttpStatusCode.BadRequest, "La contraseña es obligatoria.")]
+    [InlineData("1234567", "password", HttpStatusCode.BadRequest, RutFormat.ValidationMessage)]
+    [InlineData("12.345.678-9", "password", HttpStatusCode.BadRequest, RutFormat.ValidationMessage)]
+    [InlineData("12345678-5", "", HttpStatusCode.BadRequest, "La contraseña es obligatoria.")]
     public async Task Login_DatosInvalidos_Rechazado(string rut, string password, HttpStatusCode status, string message)
     {
         using var client = factory.CreateClient();
@@ -107,15 +105,28 @@ public sealed class AuthTests(GymApiFactory factory)
     }
 
     [Fact]
-    [Trait("Category", "LegacyBehavior")]
-    public async Task Login_Deshabilitado_Ok()
+    public async Task Login_Deshabilitado_Unauthorized()
     {
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
-        // Comportamiento actual (D2); cambia en F5.
-        await Expect(await client.PostAsJsonAsync("/api/auth/login", new { rut = user.Rut, password = user.Password }, JsonOptions, Ct), HttpStatusCode.OK, "Login correcto.");
+        await Expect(await client.PostAsJsonAsync("/api/auth/login", new { rut = user.Rut, password = user.Password }, JsonOptions, Ct), HttpStatusCode.Unauthorized, "Credenciales de usuario incorrectas.");
+    }
+
+    [Fact]
+    public async Task RegisterAndLogin_DottedRut_NormalizesToCanonical()
+    {
+        const string rut = "12.345.678-5";
+        const string canonical = "12345678-5";
+        const string password = "Password123!";
+        using var admin = await factory.CreateAdminClientAsync();
+        var registered = await Expect(await admin.PostAsJsonAsync("/api/auth/register",
+            Registration(rut, email: $"normalized-{Guid.NewGuid():N}@example.test", password: password), JsonOptions, Ct), HttpStatusCode.OK);
+        Assert.Equal(canonical, registered.GetProperty("user").GetProperty("rut").GetString());
+        Assert.True(await factory.WithDbAsync(db => db.Users.AnyAsync(u => u.Rut == canonical, Ct)));
+        using var client = factory.CreateClient();
+        await Expect(await client.PostAsJsonAsync("/api/auth/login", new { rut, password }, JsonOptions, Ct), HttpStatusCode.OK);
     }
 
     [Theory]

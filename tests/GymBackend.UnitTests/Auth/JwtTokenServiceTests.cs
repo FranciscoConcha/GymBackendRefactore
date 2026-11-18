@@ -17,6 +17,8 @@ public sealed class JwtTokenServiceTests
     {
         var service = new JwtTokenService(Microsoft.Extensions.Options.Options.Create(new JwtOptions
         {
+            Issuer = "unit-issuer",
+            Audience = "unit-audience",
             Key = "unit-test-signing-key-at-least-32-bytes-long",
         }));
         var user = new User
@@ -37,6 +39,8 @@ public sealed class JwtTokenServiceTests
         Assert.Equal(role, token.Claims.Single(claim => claim.Type == ClaimTypes.Role).Value);
         Assert.Equal(user.Rut, token.Claims.Single(claim => claim.Type == GymClaimTypes.Rut).Value);
         Assert.Equal(user.Email, token.Claims.Single(claim => claim.Type == GymClaimTypes.Email).Value);
+        Assert.Equal("unit-issuer", token.Issuer);
+        Assert.Equal("unit-audience", Assert.Single(token.Audiences));
         Assert.Equal(SecurityAlgorithms.HmacSha256, token.Header.Alg);
         Assert.InRange(token.ValidTo, before.AddHours(8).AddSeconds(-1), after.AddHours(8));
     }

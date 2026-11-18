@@ -1,5 +1,7 @@
 using GymBackend.Domain;
+using System.Globalization;
 using System.Net;
+using System.Net.Http.Json;
 using GymBackend.IntegrationTests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
@@ -76,8 +78,7 @@ public sealed class ReservationTests(GymApiFactory factory)
     }
 
     [Fact]
-    [Trait("Category", "LegacyBehavior")]
-    public async Task Post_UsuarioDeshabilitado_Ok()
+    public async Task Post_UsuarioDeshabilitado_Unauthorized()
     {
         var date = GymTime.Tomorrow();
         var user = await factory.CreateClientUserAsync();
@@ -85,8 +86,10 @@ public sealed class ReservationTests(GymApiFactory factory)
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
         var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
-        // Comportamiento actual (D2); cambia en F5.
-        await Reservation(client, slot.Id, date);
+        // D2 corregido en F5: el token previo de un usuario deshabilitado deja de ser válido.
+        using var response = await client.PostAsJsonAsync("/api/reservations",
+            new { scheduleSlotId = slot.Id, date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }, Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
