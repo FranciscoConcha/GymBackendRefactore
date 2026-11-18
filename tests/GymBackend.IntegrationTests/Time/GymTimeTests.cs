@@ -22,8 +22,9 @@ public sealed class GymTimeTests(GymApiFactory factory)
         client.DefaultRequestHeaders.Authorization = realClient.DefaultRequestHeaders.Authorization;
         using var admin = host.CreateClient();
         admin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
-        await Reservation(client, await factory.CreateSlotAsync("Martes", "23:00", "23:59"));
-        var qr = await Expect(await client.GetAsync("/api/qr/my-code", Ct), HttpStatusCode.OK);
+        var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(23, 0), new TimeOnly(23, 59));
+        await factory.InsertReservationAsync(user.UserId, slot.Id, new DateOnly(2026, 11, 17));
+        var qr = await Expect(await client.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.OK);
         Assert.Equal("2026-11-17", qr.GetProperty("date").GetString());
         var validFrom = qr.GetProperty("validFrom").GetDateTimeOffset();
         Assert.Equal(new DateTime(2026, 11, 17), validFrom.DateTime);
@@ -39,7 +40,7 @@ public sealed class GymTimeTests(GymApiFactory factory)
         await factory.WithDbAsync(async db =>
         {
             var attendance = await db.Attendances.SingleAsync(a => a.Id == id, Ct);
-            Assert.Equal("2026-11-17", attendance.Date);
+            Assert.Equal(new DateOnly(2026, 11, 17), attendance.Date);
             Assert.Equal(instant.UtcDateTime, attendance.EntryTime);
             Assert.Equal(clock.GetUtcNow().UtcDateTime, attendance.ExitTime);
             Assert.Equal(DateTimeKind.Utc, attendance.ExitTime!.Value.Kind);
@@ -61,8 +62,9 @@ public sealed class GymTimeTests(GymApiFactory factory)
         client.DefaultRequestHeaders.Authorization = realClient.DefaultRequestHeaders.Authorization;
         using var admin = host.CreateClient();
         admin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
-        var reservation = await Reservation(client, await factory.CreateSlotAsync("Martes", "08:00", "09:30"));
-        Assert.Equal(clock.GetUtcNow().UtcDateTime, reservation.GetProperty("createdAt").GetDateTime());
+        var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(8, 0), new TimeOnly(9, 30));
+        var local = TimeZoneInfo.ConvertTime(clock.GetUtcNow(), TimeZoneInfo.FindSystemTimeZoneById("America/Santiago"));
+        await factory.InsertReservationAsync(user.UserId, slot.Id, DateOnly.FromDateTime(local.DateTime));
         var token = await Api.Qr(client);
         await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.BadRequest,
             "El usuario no se encuentra registrado en el horario de ingreso.");

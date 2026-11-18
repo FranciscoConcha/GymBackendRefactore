@@ -102,15 +102,21 @@ Riesgo: las pruebas de integración requieren Docker en local y en CI (`ubuntu-l
 
 Las tres primeras tareas pueden ejecutarse en paralelo porque usan archivos disjuntos; el registro de DI se integra al final.
 
-### F4 — Modelo de datos y migraciones (crítica) → **H5** antes de implementar
+### F4 — Modelo de datos y migraciones (crítica) → **H5 aprobado (2026-11-17)**
+
+Decisiones de H5: no hay datos que conservar, así que se crea una migración inicial nueva sin *baseline* ni transformación. Las **reservas pasan a ser por fecha concreta** (hora de Santiago) en lugar de semanales.
+
 | Rama | Tarea | Criterio |
 |---|---|---|
-| `feat/f4-initial-migration` | Migración *baseline* del esquema actual; `EnsureCreated` se sustituye por `Migrate` solo en Development | `dotnet ef migrations` limpio |
-| `feat/f4-constraints` | Índices únicos (RUT, correo y usuario normalizados); FK `Reservation.UserId`; índice único parcial "una reserva activa por usuario y bloque" | Las violaciones devuelven 409, no 500 |
-| `feat/f4-reservation-slot-fk` | `Reservation.ScheduleSlotId` como FK; retirar las columnas duplicadas (D7) | Migración con transformación de datos probada |
-| `fix/f4-capacity-concurrency` | Control de cupo atómico (transacción serializable o bloqueo de fila del bloque) (D5) | Prueba concurrente: N+1 solicitudes simultáneas → exactamente N reservas |
-| `refactor/f4-enums` | Estados y roles como `enum` persistidos como texto | Migración sin pérdida |
-| `refactor/f4-local-time-types` | `Day`/`StartTime`/`EndTime` como `DayOfWeek`/`TimeOnly` y `Attendance.Date` como `DateOnly` (hora local del gimnasio); instantes como `timestamptz` UTC | Migración con conversión probada; pruebas horarias en verde |
+| `feat/f4-schema-by-date` | Esquema nuevo con migración `InitialCreate` (se reemplaza `EnsureCreated` por `Migrate`, solo en Development). `ScheduleSlot` con `DayOfWeek`/`TimeOnly`; `Reservation` con FK a `User` y a `ScheduleSlot` y `Date` (`DateOnly`); se retiran las columnas duplicadas (D7). `Attendance` con `Date` (`DateOnly`) y FK. Estado de reserva como `enum` persistido como texto. Restricciones: RUT, correo y usuario no vacío únicos; una reserva activa por (usuario, bloque, fecha); una asistencia por (usuario, fecha); checks de cupo y horario. API por fecha y reglas de negocio (ver abajo) | Pruebas de integración y de contrato actualizadas en verde; las restricciones se verifican en la BD |
+| `fix/f4-capacity-concurrency` | Cupo atómico mediante bloqueo de fila del bloque en una transacción (D5); violación de unicidad concurrente → 409 | Prueba concurrente: N+1 solicitudes simultáneas → exactamente N reservas |
+
+Reglas de negocio de reserva (H5):
+- `GET /api/schedules?date=yyyy-MM-dd` (por defecto, hoy): bloques habilitados del día de la semana de esa fecha, con `reservedCount` de esa fecha.
+- `POST /api/reservations { scheduleSlotId, date }`: la fecha debe coincidir con el día del bloque; no se admiten fechas pasadas; el mismo día se puede reservar **hasta la hora de inicio** del bloque.
+- **Anticipación máxima configurable** (`Reservations:MaxDaysAhead`, por defecto 7; `Reservations:HorizonUnit` = `CalendarDays` | `BusinessDays`, donde los días hábiles son de lunes a viernes, sin feriados).
+- Cancelación: solo reservas en estado `Reservado` (corrige D13). El usuario puede cancelar **hasta el inicio** del bloque; el administrador, siempre.
+- La asistencia busca la reserva de **la fecha de hoy** (Santiago) dentro de la ventana de ±15 min.
 
 ### F5 — Endurecimiento de seguridad (crítica) → **H6**
 | Rama | Tarea | Criterio |
@@ -121,6 +127,8 @@ Las tres primeras tareas pueden ejecutarse en paralelo porque usan archivos disj
 | `feat/f5-rate-limiting` | `AddRateLimiter` en los endpoints de login (D4) | 429 tras superar el umbral |
 | `feat/f5-api-v1` | Rutas versionadas `/api/v1/...`; pruebas actualizadas | Las rutas antiguas responden 404 o redirección documentada |
 | `feat/f5-validation` | Validación de DTOs (DataAnnotations); RUT con dígito verificador (según la decisión de §5); reglas de cancelación (D13) | 400 con ProblemDetails |
+
+Decisiones H6 (2026-11-18): RUT canónico `12345678-5` (cuerpo 7-8 dígitos, guion, DV `0-9`/`K`; la entrada acepta puntos y guion); sin conversión de RUT heredados (H5: sin datos que conservar); rutas antiguas `/api/...` → 404. Estado: hashing, login deshabilitado, claves/JWT, rate limiting y RUT en PR #21; `/api/v1` en `feat/f5-api-v1`. Pendiente para F6: `ForwardedHeaders` para que el límite por IP funcione detrás de un proxy.
 
 ### F6 — Calidad, documentación y entrega → **H7**, **H8**
 | Rama | Tarea | Criterio |

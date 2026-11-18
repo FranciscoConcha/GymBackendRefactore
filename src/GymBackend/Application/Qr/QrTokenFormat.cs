@@ -1,13 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace GymBackend.Services;
+namespace GymBackend.Application.Qr;
 
-public static class QrTokenService
+public static class QrTokenFormat
 {
     private const string DateFormat = "yyyyMMdd";
 
-    public static string GenerateToken(string rut, string signingKey, DateTime date)
+    public static string Create(string rut, string signingKey, DateOnly date)
     {
         var payload = $"{rut}|{date.ToString(DateFormat)}";
         var payloadBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(payload));
@@ -16,7 +16,7 @@ public static class QrTokenService
         return $"{payloadBase64}.{signature}";
     }
 
-    public static bool TryValidateToken(string? token, string signingKey, DateTime today, out string rut, out string error)
+    public static bool TryValidate(string? token, string signingKey, DateOnly today, out string rut, out string error)
     {
         rut = string.Empty;
         error = string.Empty;

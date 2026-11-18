@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using GymBackend.Application.Auth;
 
 namespace GymBackend.IntegrationTests.Infrastructure;
 
@@ -13,6 +14,7 @@ public static class TestData
         if (rut > 99_999_999)
             throw new InvalidOperationException("Se agotaron los RUT de ocho dígitos de esta ejecución.");
 
-        return rut.ToString(CultureInfo.InvariantCulture);
+        var body = rut.ToString(CultureInfo.InvariantCulture);
+        return $"{body}-{RutFormat.ComputeCheckDigit(body)}";
     }
 }

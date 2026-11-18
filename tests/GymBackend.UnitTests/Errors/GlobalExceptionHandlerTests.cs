@@ -8,8 +8,10 @@ namespace GymBackend.UnitTests.Errors;
 
 public sealed class GlobalExceptionHandlerTests
 {
-    [Fact]
-    public async Task UnhandledException_WritesSafeProblemDetails()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnhandledException_WritesSafeProblemDetails(bool uniqueViolation)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -21,18 +23,23 @@ public sealed class GlobalExceptionHandlerTests
         var handler = new GlobalExceptionHandler(NullLogger<GlobalExceptionHandler>.Instance,
             provider.GetRequiredService<IProblemDetailsService>());
         const string internalMessage = "Internal database credentials must never appear";
-        var handled = await handler.TryHandleAsync(context, new InvalidOperationException(internalMessage),
+        Exception exception = uniqueViolation
+            ? new Microsoft.EntityFrameworkCore.DbUpdateException(internalMessage,
+                new Npgsql.PostgresException(internalMessage, "ERROR", "ERROR", "23505"))
+            : new InvalidOperationException(internalMessage);
+        var expectedStatus = uniqueViolation ? 409 : 500;
+        var handled = await handler.TryHandleAsync(context, exception,
             TestContext.Current.CancellationToken);
         Assert.True(handled);
-        Assert.Equal(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
+        Assert.Equal(expectedStatus, context.Response.StatusCode);
         Assert.Equal("application/problem+json", context.Response.ContentType?.Split(';')[0]);
         body.Position = 0;
         using var reader = new StreamReader(body);
         var text = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
         Assert.DoesNotContain(internalMessage, text);
         using var json = JsonDocument.Parse(text);
-        Assert.Equal(500, json.RootElement.GetProperty("status").GetInt32());
-        Assert.Equal("Error interno del servidor.", json.RootElement.GetProperty("title").GetString());
+        Assert.Equal(expectedStatus, json.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal(uniqueViolation ? "Conflicto con el estado actual del recurso." : "Error interno del servidor.", json.RootElement.GetProperty("title").GetString());
         Assert.False(json.RootElement.TryGetProperty("detail", out _));
     }
 }

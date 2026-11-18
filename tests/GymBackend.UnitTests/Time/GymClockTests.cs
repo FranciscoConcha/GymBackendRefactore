@@ -1,3 +1,4 @@
+using System.Globalization;
 using GymBackend.Extensions;
 using GymBackend.Options;
 using GymBackend.Time;
@@ -5,7 +6,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using System.Globalization;
 
 namespace GymBackend.UnitTests.Time;
 
@@ -61,7 +61,14 @@ public sealed class GymClockTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(
-            new Dictionary<string, string?> { ["Gym:TimeZone"] = "Invalid/Zone", ["Jwt:Key"] = new string('x', 32) }).Build());
+            new Dictionary<string, string?>
+            {
+                ["Gym:TimeZone"] = "Invalid/Zone",
+                ["Jwt:Key"] = new string('x', 32),
+                ["Jwt:Issuer"] = "tests",
+                ["Jwt:Audience"] = "clients",
+                ["Qr:SigningKey"] = new string('q', 32)
+            }).Build());
         services.AddGymOptions();
         await using var provider = services.BuildServiceProvider();
         var error = Assert.Throws<OptionsValidationException>(() =>
