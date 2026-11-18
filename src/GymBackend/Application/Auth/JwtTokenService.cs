@@ -11,7 +11,7 @@ namespace GymBackend.Application.Auth;
 
 public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions) : ITokenService
 {
-    public string CreateToken(User user)
+    public IssuedToken CreateToken(User user)
     {
         var key = jwtOptions.Value.Key
             ?? throw new InvalidOperationException("Jwt:Key no está configurada.");
@@ -29,13 +29,14 @@ public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions) : ITokenSer
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
             SecurityAlgorithms.HmacSha256);
 
+        var expires = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.AddHours(8).ToUnixTimeSeconds());
         var token = new JwtSecurityToken(
             issuer: jwtOptions.Value.Issuer,
             audience: jwtOptions.Value.Audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(8),
+            expires: expires.UtcDateTime,
             signingCredentials: credentials);
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return new IssuedToken(new JwtSecurityTokenHandler().WriteToken(token), expires);
     }
 }

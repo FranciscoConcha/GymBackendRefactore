@@ -42,6 +42,7 @@ if (app.Environment.IsDevelopment())
 }
 app.UseRouting();
 app.UseCors("Frontend");
+app.UseMiddleware<CsrfProtectionMiddleware>();
 app.UseRateLimiter();
 if (!app.Environment.IsDevelopment())
 {

@@ -18,6 +18,8 @@ public sealed class LoginRateLimitTests(GymApiFactory factory)
     {
         using var host = CreateHost();
         using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Remove("X-Gym-Csrf");
+        client.DefaultRequestHeaders.Add("X-Gym-Csrf", "1");
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -37,6 +39,8 @@ public sealed class LoginRateLimitTests(GymApiFactory factory)
     {
         using var host = CreateHost();
         using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Remove("X-Gym-Csrf");
+        client.DefaultRequestHeaders.Add("X-Gym-Csrf", "1");
 
         for (var attempt = 0; attempt < 3; attempt++)
         {

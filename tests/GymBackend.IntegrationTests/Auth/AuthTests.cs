@@ -98,7 +98,8 @@ public sealed class AuthTests(GymApiFactory factory)
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         var json = await Expect(await client.PostAsJsonAsync("/api/v1/auth/login", new { rut = user.Rut, password = user.Password }, JsonOptions, Ct), HttpStatusCode.OK, "Login correcto.");
-        Assert.False(string.IsNullOrWhiteSpace(json.GetProperty("token").GetString()));
+        Assert.False(json.TryGetProperty("token", out _));
+        Assert.True(json.GetProperty("expiresAt").GetDateTimeOffset() > DateTimeOffset.UtcNow);
         Assert.Equal(user.UserId, json.GetProperty("user").GetProperty("id").GetInt32());
         await Expect(await client.PostAsJsonAsync("/api/v1/auth/login", new { rut = user.Rut, password = "incorrecta" }, JsonOptions, Ct), HttpStatusCode.Unauthorized, "Credenciales de usuario incorrectas.");
         await Expect(await client.PostAsJsonAsync("/api/v1/auth/login", new { rut = factory.AdminRut, password = factory.AdminPassword }, JsonOptions, Ct), HttpStatusCode.Unauthorized, "Credenciales de usuario incorrectas.");
@@ -145,7 +146,8 @@ public sealed class AuthTests(GymApiFactory factory)
         using var client = factory.CreateClient();
         var json = await Expect(await client.PostAsJsonAsync("/api/v1/auth/admin-login", new { username = factory.AdminUsername.ToUpperInvariant(), password = factory.AdminPassword }, JsonOptions, Ct), HttpStatusCode.OK, "Login de administrador correcto.");
         Assert.Equal("Admin", json.GetProperty("user").GetProperty("role").GetString());
-        Assert.False(string.IsNullOrWhiteSpace(json.GetProperty("token").GetString()));
+        Assert.False(json.TryGetProperty("token", out _));
+        Assert.True(json.GetProperty("expiresAt").GetDateTimeOffset() > DateTimeOffset.UtcNow);
     }
 
     [Fact]

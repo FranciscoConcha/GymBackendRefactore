@@ -84,6 +84,14 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         return ServiceResult<UserResponse[]>.Success(users);
     }
 
+    public async Task<ServiceResult<UserResponse>> GetCurrentAsync(int id, CancellationToken ct = default)
+    {
+        var user = await context.Users.AsNoTracking().SingleOrDefaultAsync(user => user.Id == id, ct);
+        return user is null
+            ? ServiceError.Unauthorized("La sesión no corresponde a un usuario válido.")
+            : ServiceResult<UserResponse>.Success(UserResponse.From(user));
+    }
+
     public async Task<ServiceResult<UserMessageResponse>> SetUserStatusAsync(int id, SetUserStatusRequest request, CancellationToken ct = default)
     {
         var user = await context.Users.FindAsync(new object[] { id }, ct);

@@ -96,7 +96,7 @@ public sealed class ResponseContractTests(GymApiFactory factory)
 
     private static void Auth(JsonElement json)
     {
-        Shape(json, "message:s token:s user:o");
+        Shape(json, "message:s user:o expiresAt:s");
         Shape(json.GetProperty("user"), UserShape);
     }
 

@@ -1,3 +1,3 @@
 namespace GymBackend.DTOs;
 
-public sealed record AuthResponse(string Message, string Token, UserResponse User);
+public sealed record AuthResponse(string Message, UserResponse User, DateTimeOffset ExpiresAt);

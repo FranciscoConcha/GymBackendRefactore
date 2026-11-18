@@ -48,7 +48,7 @@ Todas las rutas de controladores tienen el prefijo `/api/v1`; las rutas antiguas
 
 | Controlador | Rutas y métodos | Acceso / función |
 |---|---|---|
-| `Auth` | `POST /login`, `POST /admin-login`, `POST /register`, `GET /users`, `PATCH /users/{id}/status` | Login de usuario y administrador; registro, listado y habilitación de usuarios para administradores. Login limitado por tasa. |
+| `Auth` | `POST /login`, `POST /admin-login`, `POST /register`, `GET /me`, `POST /logout`, `GET /users`, `PATCH /users/{id}/status` | Login de usuario y administrador; registro, listado y habilitación de usuarios para administradores. Login limitado por tasa. |
 | `Schedules` | `GET /schedules?date=yyyy-MM-dd` | Consulta bloques habilitados para la fecha (requiere autenticación). |
 | `Reservations` | `GET /reservations`, `GET /reservations/user/{userId}`, `POST /reservations`, `DELETE /reservations/{id}` | Consulta, creación y cancelación; el listado general es de administrador. |
 | `Qr` | `GET /qr/my-code` | Emite el código personal del usuario autenticado. |
@@ -65,7 +65,18 @@ Los endpoints de salud son `GET /health/live` y `GET /health/ready`; el segundo 
 - El RUT se valida y almacena en forma canónica, por ejemplo `12345678-5`.
 - La API agrega cabeceras HTTP de seguridad.
 
-El JWT se devuelve en el cuerpo de la respuesta de autenticación; su almacenamiento en el cliente es responsabilidad del frontend.
+El JWT de sesión se entrega solo en la cookie `__Host-gym_session`: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`, sin `Domain`, con expiración igual al JWT (8 horas). Login y admin-login responden `{ message, user, expiresAt }`, sin token. Se requiere HTTPS para enviar la cookie (los navegadores tratan `http://localhost` como contexto seguro en desarrollo). Por `SameSite=Strict`, **el frontend y la API deben publicarse en el mismo sitio** (mismo dominio registrable, p. ej. `app.ejemplo.cl` y `api.ejemplo.cl`, o el mismo origen detrás de un proxy); desde otro dominio la cookie no se envía. `GET /api/v1/auth/me` devuelve el usuario actual desde BD; `POST /api/v1/auth/logout` borra la cookie incluso sin sesión. El cierre no revoca copias del JWT antes de su expiración.
+
+Para POST, PUT, PATCH y DELETE bajo `/api/`, incluidos ambos logins y logout, el frontend debe enviar `X-Gym-Csrf: 1`. Si existe `Origin`, debe coincidir con un origen de `Cors:AllowedOrigins`; el rechazo CSRF devuelve 403. CORS permite credenciales solo para orígenes explícitos y rechaza `*` al arrancar. El frontend debe usar `credentials: 'include'`; `SameSite=Strict` requiere que frontend y API pertenezcan al mismo sitio. Los clientes con cabecera `Authorization` están exentos del middleware CSRF y pueden seguir usando Bearer; nunca se leen tokens desde query string. Las respuestas de `/api/` usan `Cache-Control: no-store`.
+
+```javascript
+fetch('https://api.example/api/v1/auth/login', {
+  method: 'POST',
+  credentials: 'include',
+  headers: { 'Content-Type': 'application/json', 'X-Gym-Csrf': '1' },
+  body: JSON.stringify({ rut, password })
+});
+```
 
 ## Observabilidad
 

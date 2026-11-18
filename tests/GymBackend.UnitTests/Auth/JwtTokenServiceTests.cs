@@ -32,8 +32,9 @@ public sealed class JwtTokenServiceTests
         var before = DateTime.UtcNow;
         var encoded = service.CreateToken(user);
         var after = DateTime.UtcNow;
-        var token = new JwtSecurityTokenHandler().ReadJwtToken(encoded);
+        var token = new JwtSecurityTokenHandler().ReadJwtToken(encoded.Value);
 
+        Assert.Equal(token.ValidTo, encoded.ExpiresAt.UtcDateTime);
         Assert.Equal("42", token.Claims.Single(claim => claim.Type == ClaimTypes.NameIdentifier).Value);
         Assert.Equal(user.Name, token.Claims.Single(claim => claim.Type == ClaimTypes.Name).Value);
         Assert.Equal(role, token.Claims.Single(claim => claim.Type == ClaimTypes.Role).Value);

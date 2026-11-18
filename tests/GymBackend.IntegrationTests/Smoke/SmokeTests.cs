@@ -27,7 +27,7 @@ public sealed class SmokeTests(GymApiFactory factory)
     }
 
     [Fact]
-    public async Task AdminLogin_WithBootstrapCredentials_ReturnsToken()
+    public async Task AdminLogin_WithBootstrapCredentials_ReturnsSession()
     {
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login",
@@ -35,7 +35,8 @@ public sealed class SmokeTests(GymApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, TestContext.Current.CancellationToken);
         Assert.NotNull(auth);
-        Assert.False(string.IsNullOrWhiteSpace(auth.Token));
+        Assert.True(auth.ExpiresAt > DateTimeOffset.UtcNow);
+        Assert.True(response.Headers.Contains("Set-Cookie"));
     }
 
     [Fact]
