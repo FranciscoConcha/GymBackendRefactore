@@ -12,11 +12,11 @@ public sealed class DisabledUserTokenTests(GymApiFactory factory)
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         using var admin = await factory.CreateAdminClientAsync();
-        _ = await Api.Qr(client);
+        using (var allowed = await client.GetAsync("/api/v1/schedules", Ct)) Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
         await Expect(await Status(admin, user.UserId, false), HttpStatusCode.OK);
-        using var denied = await client.GetAsync("/api/v1/qr/my-code", Ct);
+        using var denied = await client.GetAsync("/api/v1/me/reservations/1/qr", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         await Expect(await Status(admin, user.UserId, true), HttpStatusCode.OK);
-        _ = await Api.Qr(client);
+        using (var allowed = await client.GetAsync("/api/v1/schedules", Ct)) Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
     }
 }

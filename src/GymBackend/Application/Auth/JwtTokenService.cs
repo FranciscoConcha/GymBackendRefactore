@@ -9,7 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace GymBackend.Application.Auth;
 
-public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions) : ITokenService
+public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions, TimeProvider? timeProvider = null) : ITokenService
 {
     public IssuedToken CreateToken(User user)
     {
@@ -18,8 +18,9 @@ public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions) : ITokenSer
 
         var claims = new[]
         {
+            new Claim("sv", user.SessionVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name, user.Name),
+            new Claim(ClaimTypes.Name, user.FullName),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim(GymClaimTypes.Rut, user.Rut),
             new Claim(GymClaimTypes.Email, user.Email),
@@ -29,7 +30,7 @@ public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions) : ITokenSer
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
             SecurityAlgorithms.HmacSha256);
 
-        var expires = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.AddHours(8).ToUnixTimeSeconds());
+        var expires = DateTimeOffset.FromUnixTimeSeconds((timeProvider ?? TimeProvider.System).GetUtcNow().AddHours(8).ToUnixTimeSeconds());
         var token = new JwtSecurityToken(
             issuer: jwtOptions.Value.Issuer,
             audience: jwtOptions.Value.Audience,

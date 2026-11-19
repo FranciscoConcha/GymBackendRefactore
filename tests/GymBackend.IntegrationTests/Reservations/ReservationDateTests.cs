@@ -97,8 +97,7 @@ public sealed class ReservationDateTests(GymApiFactory factory)
         var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(10, 0), new TimeOnly(11, 0), 1);
         await factory.InsertReservationAsync(user.UserId, slot.Id, Today, ReservationStatus.Cancelled);
         await factory.InsertReservationAsync(user.UserId, slot.Id, Today, ReservationStatus.Attended);
-        await Reservation(client, slot.Id, Today);
-        await Expect(await Reserve(client, slot.Id, Today), HttpStatusCode.BadRequest, "No quedan cupos disponibles para este bloque.");
+        await Expect(await Reserve(client, slot.Id, Today), HttpStatusCode.Conflict, "No quedan cupos disponibles para este bloque.");
         await Reservation(client, slot.Id, Today.AddDays(7));
         foreach (var date in new[] { Today, Today.AddDays(7) })
         {

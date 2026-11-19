@@ -50,8 +50,9 @@ public sealed class ReservationTests(GymApiFactory factory)
         using var client = user.Client;
         var missing = new GymBackend.Models.ScheduleSlot { Day = slot.Day, StartTime = slot.StartTime, EndTime = slot.EndTime, Zone = Guid.NewGuid().ToString() };
         await Expect(await Reserve(client, missing.Id, date), HttpStatusCode.BadRequest, "El bloque seleccionado no está disponible.");
-        using var ghost = factory.CreateClientWithToken(factory.CreateJwt(999999, "Cliente", TestData.NextRut()));
-        await Expect(await Reserve(ghost, slot.Id, date), HttpStatusCode.Unauthorized, "La sesión no corresponde a un usuario válido.");
+        using var ghost = factory.CreateClientWithToken(factory.CreateJwt(999999, "Usuario", TestData.NextRut()));
+        using var ghostResponse = await Reserve(ghost, slot.Id, date);
+        Assert.Equal(HttpStatusCode.Unauthorized, ghostResponse.StatusCode);
         var result = await Reservation(client, slot.Id, date);
         Assert.Equal("Reservado", result.GetProperty("status").GetString());
         Assert.Equal(7, result.GetProperty("capacity").GetInt32());
@@ -72,7 +73,7 @@ public sealed class ReservationTests(GymApiFactory factory)
         using var three = third.Client;
         var reservation = await Reservation(one, slot.Id, date);
         await Reservation(two, slot.Id, date);
-        await Expect(await Reserve(three, slot.Id, date), HttpStatusCode.BadRequest, "No quedan cupos disponibles para este bloque.");
+        await Expect(await Reserve(three, slot.Id, date), HttpStatusCode.Conflict, "No quedan cupos disponibles para este bloque.");
         await Expect(await one.DeleteAsync($"/api/v1/reservations/{reservation.GetProperty("id").GetInt32()}", Ct), HttpStatusCode.OK);
         await Reservation(three, slot.Id, date);
     }

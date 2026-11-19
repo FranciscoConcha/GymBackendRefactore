@@ -59,7 +59,7 @@ public sealed class SmokeTests(GymApiFactory factory)
         var (seededSlots, seededDays, admin) = await factory.WithDbAsync(async db =>
         {
             var seeded = await db.ScheduleSlots
-                .Where(slot => slot.Zone == "Sala de Pesas" && slot.Capacity == 20)
+                .Where(slot => slot.Zone == "Sala de Pesas" && slot.Capacity == 30)
                 .ToListAsync(ct);
             var adminUser = await db.Users.SingleAsync(user => user.Rut == factory.AdminRut, ct);
             Assert.All(seeded, slot =>
@@ -73,7 +73,7 @@ public sealed class SmokeTests(GymApiFactory factory)
         Assert.Equal(new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
             DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday }, seededDays);
         Assert.Equal("Admin", admin.Role);
-        Assert.Equal("Administrador", admin.UserType);
+        Assert.Null(admin.Category);
         Assert.Equal(factory.AdminUsername.ToLowerInvariant(), admin.Username);
     }
 }

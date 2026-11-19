@@ -19,7 +19,7 @@ public sealed class ApiVersioningTests(GymApiFactory factory)
             new { rut = "legacy", password = "legacy" }, ct);
         Assert.Equal(HttpStatusCode.NotFound, login.StatusCode);
 
-        using var qr = await anonymous.GetAsync("/api/qr/my-code", ct);
+        using var qr = await anonymous.GetAsync("/api/me/reservations/1/qr", ct);
         Assert.Equal(HttpStatusCode.NotFound, qr.StatusCode);
 
         var user = await factory.CreateClientUserAsync();

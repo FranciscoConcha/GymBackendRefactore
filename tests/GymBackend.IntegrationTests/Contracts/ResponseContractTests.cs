@@ -9,9 +9,9 @@ namespace GymBackend.IntegrationTests.Contracts;
 
 public sealed class ResponseContractTests(GymApiFactory factory)
 {
-    private const string UserShape = "id:n rut:s name:s email:s username:s userType:s role:s enabled:b";
-    private const string ReservationShape = "id:n userId:n userName:s scheduleSlotId:n date:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s";
-    private const string AttendanceShape = "id:n userId:n rut:s userName:s date:s entryTime:s? entryAdminRut:s? exitTime:s? exitAdminRut:s? reservationId:n? checkedIn:b";
+    private const string UserShape = "id:n rut:s firstName:s lastName:s fullName:s email:s username:s category:s? sportBranch:o? role:s mustChangePassword:b enabled:b status:s createdAt:s updatedAt:s";
+    private const string ReservationShape = "id:n userId:n userName:s scheduleSlotId:n date:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s category:s? sportBranchId:n?";
+    private const string VisitShape = "id:n userId:n fullName:s rut:s reservationId:n? groupBookingId:n? date:s entryAt:s exitAt:s? stayMinutes:n? documentType:s entryOperator:s exitOperator:s?";
 
     [Fact]
     public async Task AuthResponses_HaveExactPropertiesAndTypes()
@@ -24,7 +24,7 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         var rut = TestData.NextRut();
         var password = Guid.NewGuid().ToString("N");
         var registered = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register",
-            new { rut, name = "Contrato", email = $"{rut}@example.test", password, userType = "Estudiante" }, JsonOptions, Ct), HttpStatusCode.OK);
+            new { rut, firstName = "Contrato", lastName = "Test", email = $"{rut}@example.test", password, role = "Usuario", category = "Estudiante" }, JsonOptions, Ct), HttpStatusCode.OK);
         UserMessage(registered);
         var id = registered.GetProperty("user").GetProperty("id").GetInt32();
         Auth(await Expect(await anonymous.PostAsJsonAsync("/api/v1/auth/login", new { rut, password }, JsonOptions, Ct), HttpStatusCode.OK));
@@ -61,19 +61,20 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         var id = created.GetProperty("reservation").GetProperty("id").GetInt32();
         Array(await Expect(await admin.GetAsync("/api/v1/reservations", Ct), HttpStatusCode.OK), ReservationShape);
         Array(await Expect(await client.GetAsync($"/api/v1/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK), ReservationShape);
-        Array(await Expect(await client.GetAsync("/api/v1/schedules", Ct), HttpStatusCode.OK), "id:n day:s startTime:s endTime:s zone:s capacity:n reservedCount:n date:s");
-        var qr = await Expect(await client.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.OK);
-        Shape(qr, "rut:s name:s date:s token:s validFrom:s validUntil:s");
+        Array(await Expect(await client.GetAsync("/api/v1/schedules", Ct), HttpStatusCode.OK), "id:n day:s startTime:s endTime:s zone:s capacity:n reservedCount:n date:s individualReservations:n groupSeats:n");
+        var qr = await Expect(await client.GetAsync($"/api/v1/me/reservations/{id}/qr", Ct), HttpStatusCode.OK);
+        Shape(qr, "token:s validFrom:s validUntil:s user:o session:o purpose:s");
+        Assert.Equal("Entrada", qr.GetProperty("purpose").GetString());
         var token = qr.GetProperty("token").GetString()!;
-        var entry = await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.OK);
+        var entry = await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.OK);
         AttendanceMessage(entry);
-        Assert.Equal(JsonValueKind.Null, entry.GetProperty("attendance").GetProperty("exitTime").ValueKind);
-        Assert.Equal(JsonValueKind.Null, entry.GetProperty("attendance").GetProperty("exitAdminRut").ValueKind);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("visit").GetProperty("exitAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("visit").GetProperty("exitOperator").ValueKind);
         clock.Advance(TimeSpan.FromMinutes(1));
-        var exit = await Expect(await Api.Attendance(admin, "exit", token), HttpStatusCode.OK);
+        var exit = await Expect(await Api.Exit(admin, user.UserId), HttpStatusCode.OK);
         AttendanceMessage(exit);
-        Assert.Equal(JsonValueKind.String, exit.GetProperty("attendance").GetProperty("exitTime").ValueKind);
-        Assert.Equal(JsonValueKind.String, exit.GetProperty("attendance").GetProperty("exitAdminRut").ValueKind);
+        Assert.Equal(JsonValueKind.String, exit.GetProperty("visit").GetProperty("exitAt").ValueKind);
+        Assert.Equal(JsonValueKind.String, exit.GetProperty("visit").GetProperty("exitOperator").ValueKind);
         var futureSlot = await factory.CreateSlotAsync(DayOfWeek.Wednesday, new TimeOnly(8, 0), new TimeOnly(9, 30));
         var futureId = (await Reservation(client, futureSlot.Id, new DateOnly(2026, 11, 18))).GetProperty("id").GetInt32();
         ReservationMessage(await Expect(await client.DeleteAsync($"/api/v1/reservations/{futureId}", Ct), HttpStatusCode.OK));
@@ -114,8 +115,8 @@ public sealed class ResponseContractTests(GymApiFactory factory)
 
     private static void AttendanceMessage(JsonElement json)
     {
-        Shape(json, "message:s attendance:o");
-        Shape(json.GetProperty("attendance"), AttendanceShape);
+        Shape(json, "message:s visit:o");
+        Shape(json.GetProperty("visit"), VisitShape);
     }
 
     private static void Array(JsonElement json, string shape)

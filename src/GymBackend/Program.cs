@@ -16,7 +16,7 @@ if (!builder.Environment.IsDevelopment())
         options.IncludeSubDomains = true;
     });
 }
-builder.Services.AddControllers();
+builder.Services.AddControllers(options => options.Filters.Add<PendingPasswordChangeFilter>());
 builder.Services.AddGymErrors();
 builder.Services.AddGymObservability();
 builder.Services.AddGymOptions();
@@ -29,7 +29,17 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddGymCors();
 builder.Services.AddReservationServices();
 builder.Services.AddAuthServices();
-builder.Services.AddAttendanceServices();
+builder.Services.AddScoped<GymBackend.Application.Qr.IQrTokenService, GymBackend.Application.Qr.QrTokenService>();
+builder.Services.AddScoped<GymBackend.Application.Qr.BlockQrService>();
+builder.Services.AddScoped<GymBackend.Application.Access.AccessService>();
+builder.Services.AddScoped<AccessAttemptFilter>();
+builder.Services.AddScoped<GymBackend.Application.Groups.GroupBookingService>();
+builder.Services.AddScoped<GymBackend.Application.Alerts.NoShowProcessor>();
+builder.Services.AddHostedService<GymBackend.Application.Alerts.NoShowService>();
+builder.Services.AddScoped<GymBackend.Application.Reporting.ReportQueries>();
+builder.Services.AddScoped<GymBackend.Application.Reporting.MetricsService>();
+builder.Services.AddScoped<GymBackend.Application.Excel.ExportService>();
+builder.Services.AddScoped<GymBackend.Application.Excel.UserImportService>();
 
 var app = builder.Build();
 app.UseGymObservability();
@@ -43,7 +53,6 @@ if (app.Environment.IsDevelopment())
 app.UseRouting();
 app.UseCors("Frontend");
 app.UseMiddleware<CsrfProtectionMiddleware>();
-app.UseRateLimiter();
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
@@ -51,6 +60,7 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
 app.MapHealthEndpoints();
 

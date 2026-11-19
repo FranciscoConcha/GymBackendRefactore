@@ -26,7 +26,7 @@ public sealed class ReservationConcurrencyTests(GymApiFactory factory)
                     Assert.Equal(3, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
                     foreach (var response in responses.Where(r => r.StatusCode != HttpStatusCode.OK))
                     {
-                        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+                        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
                         Assert.Equal("No quedan cupos disponibles para este bloque.",
                             (await Api.Read(response)).GetProperty("message").GetString());
                     }
@@ -47,7 +47,7 @@ public sealed class ReservationConcurrencyTests(GymApiFactory factory)
         var date = GymTime.Tomorrow();
         var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(12, 0), new TimeOnly(13, 0));
         var clients = Enumerable.Range(0, 8).Select(_ => factory.CreateClientWithToken(
-            factory.CreateJwt(user.UserId, Roles.Client, user.Rut))).ToArray();
+            factory.CreateJwt(user.UserId, Roles.Usuario, user.Rut))).ToArray();
         try
         {
             var responses = await Together(clients, client => Api.Reserve(client, slot.Id, date));
@@ -75,10 +75,12 @@ public sealed class ReservationConcurrencyTests(GymApiFactory factory)
             var responses = await Together(clients, client => client.PostAsJsonAsync("/api/v1/auth/register", new
             {
                 rut,
-                name = "Concurrent registration",
+                firstName = "Concurrent",
+                lastName = "Registration",
                 email = $"{Guid.NewGuid():N}@example.test",
                 password = "Concurrent-Test-123!",
-                userType = "Estudiante",
+                role = "Usuario",
+                category = "Estudiante",
             }, Api.JsonOptions, Api.Ct));
             try
             {

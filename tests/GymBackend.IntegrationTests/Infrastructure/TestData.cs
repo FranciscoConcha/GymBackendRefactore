@@ -10,11 +10,18 @@ public static class TestData
 
     public static string NextRut()
     {
-        var rut = Interlocked.Increment(ref _rut);
-        if (rut > 99_999_999)
-            throw new InvalidOperationException("Se agotaron los RUT de ocho dígitos de esta ejecución.");
+        while (true)
+        {
+            var rut = Interlocked.Increment(ref _rut);
+            if (rut > 99_999_999)
+                throw new InvalidOperationException("Se agotaron los RUT de ocho dígitos de esta ejecución.");
 
-        var body = rut.ToString(CultureInfo.InvariantCulture);
-        return $"{body}-{RutFormat.ComputeCheckDigit(body)}";
+            var body = rut.ToString(CultureInfo.InvariantCulture);
+            var digit = RutFormat.ComputeCheckDigit(body);
+            // DV K se omite: los correos derivados del RUT se guardan en minúsculas y las pruebas los comparan literalmente.
+            // La normalización de K se prueba en RutFormatTests y AuthTests.
+            if (digit != "K")
+                return $"{body}-{digit}";
+        }
     }
 }

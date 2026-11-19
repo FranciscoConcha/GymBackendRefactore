@@ -9,8 +9,8 @@ namespace GymBackend.IntegrationTests.Auth;
 
 public sealed class AuthTests(GymApiFactory factory)
 {
-    private static object Registration(string rut, string name = "Test", string? email = null, string password = "Password123!", string userType = "Estudiante") =>
-        new { rut, name, email = email ?? $"{rut}@example.test", password, userType };
+    private static object Registration(string rut, string name = "Test", string? email = null, string password = "Password123!", string role = "Usuario") =>
+        new { rut, firstName = name, lastName = "Test", email = email ?? $"{rut}@example.test", password, role, category = role == "Usuario" ? "Estudiante" : null };
 
     [Theory]
     [InlineData(false, HttpStatusCode.Unauthorized)]
@@ -46,12 +46,12 @@ public sealed class AuthTests(GymApiFactory factory)
     }
 
     [Theory]
-    [InlineData("administrador")]
-    [InlineData("ADMINISTRADOR")]
+    [InlineData("admin")]
+    [InlineData("ADMIN")]
     public async Task Register_TipoAdministrador_BadRequest(string type)
     {
         using var admin = await factory.CreateAdminClientAsync();
-        await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", Registration(TestData.NextRut(), userType: type), JsonOptions, Ct),
+        await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", Registration(TestData.NextRut(), role: type), JsonOptions, Ct),
             HttpStatusCode.BadRequest, "Los administradores deben crearse por un proceso controlado.");
     }
 
@@ -73,10 +73,11 @@ public sealed class AuthTests(GymApiFactory factory)
         const string password = "Password123!";
         var result = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", Registration(rut, email: $"  USER-{rut}@EXAMPLE.TEST  ", password: password), JsonOptions, Ct), HttpStatusCode.OK, "Usuario registrado correctamente.");
         var user = result.GetProperty("user");
-        Assert.Equal("Cliente", user.GetProperty("role").GetString());
+        Assert.Equal("Usuario", user.GetProperty("role").GetString());
         Assert.Equal("", user.GetProperty("username").GetString());
         Assert.True(user.GetProperty("enabled").GetBoolean());
-        Assert.Equal($"user-{rut}@example.test", user.GetProperty("email").GetString());
+        // El RUT puede terminar en K: el correo completo se normaliza a minúsculas.
+        Assert.Equal($"user-{rut.ToLowerInvariant()}@example.test", user.GetProperty("email").GetString());
         var hash = await factory.WithDbAsync(db => db.Users.Where(u => u.Rut == rut).Select(u => u.PasswordHash).SingleAsync(Ct));
         Assert.NotEqual(32, Convert.FromBase64String(hash).Length);
         Assert.Equal(PasswordCheck.Success, new Pbkdf2PasswordHasher().Verify(password, hash));
@@ -167,7 +168,7 @@ public sealed class AuthTests(GymApiFactory factory)
         // Usa la colación real de PostgreSQL y solo los IDs de esta respuesta:
         // nuevas altas paralelas no alteran la comparación.
         var ids = users.Select(u => u.GetProperty("id").GetInt32()).ToArray();
-        var orderedIds = await factory.WithDbAsync(db => db.Users.Where(u => ids.Contains(u.Id)).OrderBy(u => u.Name).Select(u => u.Id).ToArrayAsync(Ct));
+        var orderedIds = await factory.WithDbAsync(db => db.Users.Where(u => ids.Contains(u.Id)).OrderBy(u => u.LastName).ThenBy(u => u.FirstName).ThenBy(u => u.Id).Select(u => u.Id).ToArrayAsync(Ct));
         Assert.Equal(orderedIds, ids);
     }
 
