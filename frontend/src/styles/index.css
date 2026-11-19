@@ -1,4 +1,5 @@
 @import "./dashboard.css";
+@import "./operations.css";
 
 :root {
   font-family: Inter, system-ui, sans-serif;

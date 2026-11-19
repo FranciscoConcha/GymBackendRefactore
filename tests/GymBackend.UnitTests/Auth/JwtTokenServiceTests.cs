@@ -29,6 +29,7 @@ public sealed class JwtTokenServiceTests
             Role = role,
             Rut = "123456789",
             Email = "user@example.test",
+            SessionVersion = 7,
         };
         var before = DateTime.UtcNow;
         var encoded = service.CreateToken(user);
@@ -41,6 +42,7 @@ public sealed class JwtTokenServiceTests
         Assert.Equal(role, token.Claims.Single(claim => claim.Type == ClaimTypes.Role).Value);
         Assert.Equal(user.Rut, token.Claims.Single(claim => claim.Type == GymClaimTypes.Rut).Value);
         Assert.Equal(user.Email, token.Claims.Single(claim => claim.Type == GymClaimTypes.Email).Value);
+        Assert.Equal("7", token.Claims.Single(claim => claim.Type == "sv").Value);
         Assert.Equal("unit-issuer", token.Issuer);
         Assert.Equal("unit-audience", Assert.Single(token.Audiences));
         Assert.Equal(SecurityAlgorithms.HmacSha256, token.Header.Alg);

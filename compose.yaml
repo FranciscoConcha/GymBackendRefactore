@@ -26,6 +26,15 @@ services:
       Qr__SigningKey: ${QR_SIGNING_KEY:?Configure QR_SIGNING_KEY in .env}
       Cors__AllowedOrigins__0: http://localhost:4173
       Cors__AllowedOrigins__1: http://localhost:${FRONTEND_PORT:-8080}
+      Accounts__FrontendBaseUrl: ${ACCOUNTS_FRONTEND_BASE_URL:-http://localhost:8080}
+      Email__Mode: ${EMAIL_MODE:-Pickup}
+      Email__PickupDirectory: ${EMAIL_PICKUP_DIRECTORY:-/app/mail}
+      Email__Host: ${EMAIL_HOST:-}
+      Email__Port: ${EMAIL_PORT:-587}
+      Email__EnableSsl: ${EMAIL_ENABLE_SSL:-true}
+      Email__User: ${EMAIL_USER:-}
+      Email__Password: ${EMAIL_PASSWORD:-}
+      Email__From: ${EMAIL_FROM:-no-reply@example.test}
       Database__Initialize: "true"
       # Solo el proxy del frontend (red interna de Compose) puede fijar X-Forwarded-For.
       ForwardedHeaders__Enabled: "true"
@@ -34,6 +43,8 @@ services:
       Bootstrap__AdminEmail: ${BOOTSTRAP_ADMIN_EMAIL:-}
       Bootstrap__AdminUsername: ${BOOTSTRAP_ADMIN_USERNAME:-}
       Bootstrap__AdminPassword: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    volumes:
+      - mail:/app/mail
     depends_on:
       database:
         condition: service_healthy
@@ -53,3 +64,4 @@ services:
       - ALL
 volumes:
   database:
+  mail:

@@ -12,6 +12,7 @@ using GymBackend.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -67,6 +68,15 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             SetEnvironment("Bootstrap__AdminUsername", AdminUsername);
             SetEnvironment("Bootstrap__AdminPassword", AdminPassword);
             _ = Server;
+            // Migraciones y semilla reales (Database:Initialize); se añade una rama fija para las pruebas.
+            await WithDbAsync(async db =>
+            {
+                if (!await db.SportBranches.AnyAsync(b => b.Name == "Fixture", TestContext.Current.CancellationToken))
+                {
+                    db.SportBranches.Add(new SportBranch { Name = "Fixture", CreatedAt = DateTimeOffset.UtcNow });
+                    await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                }
+            });
         }
         catch
         {
@@ -109,6 +119,47 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }
     }
 
+    public async Task<(HttpClient Client, int UserId, string Rut, string Username, string Password)> CreateDedicatedAdminClientAsync(
+        WebApplicationFactory<Program>? host = null)
+    {
+        var rut = TestData.NextRut();
+        var username = $"admin-{Guid.NewGuid():N}";
+        var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        var userId = await WithDbAsync(async db =>
+        {
+            var user = new User
+            {
+                Rut = rut,
+                Username = username,
+                Email = $"{rut}@example.test",
+                FirstName = "Dedicated",
+                LastName = "Admin",
+                Role = Roles.Admin,
+                PasswordHash = new GymBackend.Application.Auth.Pbkdf2PasswordHasher().Hash(password),
+                CreatedAt = Services.GetRequiredService<GymBackend.Time.IGymClock>().UtcNow,
+                UpdatedAt = Services.GetRequiredService<GymBackend.Time.IGymClock>().UtcNow,
+            };
+            db.Users.Add(user);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return user.Id;
+        });
+        // La sesión se emite con el reloj real: un host con reloj simulado emitiría un JWT ya vencido para el validador.
+        using var login = CreateClient();
+        var client = (host ?? this).CreateClient();
+        client.BaseAddress = new Uri("https://localhost/");
+        client.DefaultRequestHeaders.Remove("X-Gym-Csrf");
+        client.DefaultRequestHeaders.Add("X-Gym-Csrf", "1");
+        try
+        {
+            using var response = await login.PostAsJsonAsync("/api/v1/auth/admin-login", new { username, password },
+                JsonOptions, TestContext.Current.CancellationToken);
+            _ = await ReadAuthAsync(response);
+            SetToken(client, ReadSessionToken(response));
+            return (client, userId, rut, username, password);
+        }
+        catch { client.Dispose(); throw; }
+    }
+
     public async Task<HttpClient> CreateAdminClientAsync()
     {
         var client = CreateClient();
@@ -146,6 +197,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var registered = await ReadAuthAsync(registration);
         var userId = registered.User?.Id
             ?? throw new InvalidOperationException("El registro no devolviÃ³ el usuario.");
+        await MakeFixtureUserReadyAsync(registered.User!.Id);
         var client = CreateClient();
         try
         {
@@ -179,6 +231,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }, JsonOptions, TestContext.Current.CancellationToken);
         var registered = await ReadAuthAsync(registration);
         Assert.Equal(username, registered.User!.Username);
+        await MakeFixtureUserReadyAsync(registered.User!.Id);
         var client = CreateClient();
         try
         {
@@ -191,6 +244,15 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         catch { client.Dispose(); throw; }
     }
 
+    // Ordinary fixture users bypass only the initial password step in the database.
+    // Security tests register directly, preserving coverage of the pending-password flow.
+    private Task MakeFixtureUserReadyAsync(int id) => WithDbAsync(async db =>
+    {
+        var user = await db.Users.FindAsync([id], TestContext.Current.CancellationToken);
+        user!.MustChangePassword = false;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    });
+
     public HttpClient CreateClientWithToken(string token)
     {
         var client = CreateClient();
@@ -202,7 +264,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         => CreateJwt(userId.ToString(CultureInfo.InvariantCulture), role, rut, name, expires);
 
     public string CreateJwt(string? userId, string role, string rut, string name = "Test", DateTime? expires = null,
-        string? issuer = "gym-tests", string? audience = "gym-tests-clients", string? signingKey = null)
+        string? issuer = "gym-tests", string? audience = "gym-tests-clients", string? signingKey = null, int? sessionVersion = 0, bool pendingClaim = false)
     {
         var claims = new List<Claim>
         {
@@ -211,6 +273,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             new Claim("rut", rut),
             new Claim("email", $"user-{rut}@example.test"),
         };
+        if (sessionVersion is { } version) claims.Add(new Claim("sv", version.ToString(CultureInfo.InvariantCulture)));
+        if (pendingClaim) claims.Add(new Claim("gym:pending-password-change", "true"));
         if (userId is not null)
             claims.Add(new Claim(ClaimTypes.NameIdentifier, userId));
         var credentials = new SigningCredentials(

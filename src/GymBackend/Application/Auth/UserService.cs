@@ -8,7 +8,7 @@ using GymBackend.Time;
 using Microsoft.EntityFrameworkCore;
 namespace GymBackend.Application.Auth;
 
-public sealed class UserService(AppDbContext context, IUserPasswordHasher passwordHasher, IGymClock clock, IAuditLog audit) : IUserService
+public sealed class UserService(AppDbContext context, IUserPasswordHasher passwordHasher, IGymClock clock, IAuditLog audit, AccountService accounts) : IUserService
 {
     public async Task<ServiceResult<UserMessageResponse>> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
     {
@@ -19,10 +19,12 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         var lastName = request.LastName.Trim();
         var email = request.Email.Trim().ToLowerInvariant();
         var username = request.Username?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (firstName.Length == 0 || lastName.Length == 0 || email.Length == 0 || string.IsNullOrWhiteSpace(request.Password))
+        if (firstName.Length == 0 || lastName.Length == 0 || email.Length == 0 || request.Password is not null && string.IsNullOrWhiteSpace(request.Password))
             return ServiceError.Validation("Todos los campos son obligatorios.");
         var invalid = ValidateNamesAndEmail(firstName, lastName, email);
         if (invalid is not null) return ServiceError.Validation(invalid);
+        if (request.Password is not null && request.Password.Length is < 8 or > 128)
+            return ServiceError.Validation("La contraseña debe tener entre 8 y 128 caracteres.");
         var branch = request.SportBranchId is { } branchId ? await context.SportBranches.FindAsync([branchId], ct) : null;
         invalid = IdentityRules.Validate(request.Role, request.Category, request.SportBranchId, branch?.Enabled == true, username);
         if (invalid is not null) return ServiceError.Validation(invalid);
@@ -40,7 +42,9 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
             LastName = lastName,
             Email = email,
             Username = request.Role == Roles.Usuario ? string.Empty : username,
-            PasswordHash = passwordHasher.Hash(request.Password),
+            PasswordHash = request.Password is null ? string.Empty : passwordHasher.Hash(request.Password),
+            AccountStatus = request.Password is null ? AccountStatus.Pendiente : AccountStatus.Activa,
+            MustChangePassword = request.Password is not null,
             Role = request.Role,
             Category = request.Category,
             SportBranch = branch,
@@ -49,6 +53,7 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         };
         context.Users.Add(user);
         audit.Add("user.created", user);
+        if (user.AccountStatus == AccountStatus.Pendiente) accounts.EnqueueInvitation(user);
         return await SaveUserAsync(user, "Usuario registrado correctamente.", ct);
     }
 
@@ -61,15 +66,20 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         var lastName = request.LastName?.Trim() ?? user.LastName;
         var email = request.Email?.Trim().ToLowerInvariant() ?? user.Email;
         var role = request.Role ?? user.Role;
+        var username = role == Roles.Usuario ? string.Empty : request.Username?.Trim().ToLowerInvariant() ?? user.Username;
         var category = request.HasCategory ? request.Category : user.Category;
         var branchId = request.HasSportBranchId ? request.SportBranchId : user.SportBranchId;
         var branch = branchId is { } value ? await context.SportBranches.FindAsync([value], ct) : null;
         var invalid = ValidateNamesAndEmail(firstName, lastName, email)
-            ?? IdentityRules.Validate(role, category, branchId, branch?.Enabled == true, user.Username);
+            ?? IdentityRules.Validate(role, category, branchId, branch?.Enabled == true, username);
         if (invalid is not null) return ServiceError.Validation(invalid);
         if (await context.Users.AnyAsync(u => u.Id != id && u.Email.ToLower() == email, ct))
             return ServiceError.Conflict("El correo ya est\u00e1 registrado en el sistema.");
+        if (username.Length > 0 && await context.Users.AnyAsync(u => u.Id != id && u.Username.ToLower() == username, ct))
+            return ServiceError.Conflict("El usuario ya est\u00e1 registrado en el sistema.");
         var fields = new List<string>();
+        if (user.Username != username) fields.Add("username");
+        user.Username = username;
         if (user.FirstName != firstName) fields.Add("firstName");
         if (user.LastName != lastName) fields.Add("lastName");
         if (user.Email != email) fields.Add("email");

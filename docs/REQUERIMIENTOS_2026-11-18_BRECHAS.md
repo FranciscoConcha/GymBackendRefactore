@@ -1,128 +1,116 @@
 # Brechas frente a «UCN Gym: requerimientos de backend» (2026-11-18)
 
-Contraste del documento de requerimientos con la API refactorizada (`dev`, candidata `v1.0.0`, commit `f86aca2`) y el
-frontend integrado en `frontend/`. Cada estado se comprobó en el código o en las pruebas; «No» significa que no existe.
+Estado tras implementar F7–F11 (rama `feat/requerimientos-2026-11-18`), según el contrato
+`docs/CONTRATO_REQUERIMIENTOS_2026-11.md` y las decisiones del usuario. Cada estado se comprobó en el código y en pruebas que se
+ejecutaron: backend con 208 unitarias y 245 de integración contra PostgreSQL real, con migraciones y semilla.
 
-**Conclusión:** la API implementa las **reglas anteriores** que el documento declara reemplazadas (aforo 20 por bloque, roles
-`Admin`/`Cliente`, una entrada/salida diaria). Cumple buena parte de los requisitos **transversales** de seguridad e integridad
-(§3 hash, §4 concurrencia, §16), pero **no** el modelo de dominio nuevo (recepcionista, categorías, ramas, grupos, visitas con
-reingreso, QR en dos pasos, inasistencias, Excel, invitaciones). Esto exige una fase nueva con migraciones y contratos
-versionados, y varias decisiones de §18 antes de implementar.
+> La versión anterior de este documento (contraste con `v1.0.0`, commit `f86aca2`: 5 ✅, 3 🟡, 20 ❌) está en el historial de git.
 
-Leyenda: ✅ cumple · 🟡 parcial · ❌ no cumple
+Leyenda: ✅ cumple · 🟡 parcial · ❌ no cumple · ⏸ pendiente de definición del cliente
+
+## Decisiones del usuario que adaptan el documento
+- **Prioridad por ventanas de anticipación por categoría**, configurables en `Reservations:CategoryMaxDaysAhead`. Los deportistas
+  no tienen límite de reservas; los estudiantes, 1 bloque por día; no hay más límites.
+- **Grupos por rama y no nominativos**, creados por administradores. Dos modos: una cantidad de cupos o todo el cupo disponible.
+  Se crean con 60 minutos o más de anticipación.
+- **Una rama por persona**. Cada reserva guarda una copia de la categoría y la rama.
+- **QR por reserva**, válido solo durante su bloque `[inicio − 15 min, fin)`. Lo validan administración y recepción en dos pasos.
+- Las altas manuales usan una **contraseña temporal** con cambio obligatorio. Los usuarios importados o creados sin contraseña
+  reciben un **correo de activación** (Brevo, SMTP).
+- **Excel en el servidor** con ClosedXML. La importación solo da de alta; las cuentas existentes se omiten.
 
 ## §2 Roles y categorías
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Roles Administrador / Recepcionista / Usuario | ❌ | Solo `Admin` y `Cliente`; no hay recepcionista. |
-| Autorización por endpoint y campos limitados por rol | 🟡 | `[Authorize(Roles)]` en cada endpoint; falta el rol recepcionista y respuestas reducidas. |
-| Categorías Deportista/Estudiante/Funcionario/Externo separadas del rol | ❌ | `UserType` = `Estudiante`/`Administrador`, mezclado con el rol. |
-| Rama deportiva obligatoria para deportistas | ❌ | No existen ramas. |
+| Roles Administrador / Recepcionista / Usuario | ✅ | `Roles` con matriz de autorización (contrato §9). El personal inicia sesión por nombre de usuario. |
+| Autorización por endpoint y campos limitados por rol | ✅ | La recepción solo valida, registra entradas y salidas y ve el estado actual; el resto → 403 (caso 3). |
+| Categorías separadas del rol | ✅ | Deportista, Estudiante, Funcionario y Externo. |
+| Rama obligatoria para deportistas | ✅ | `SportBranch` (CRUD de administración). Una rama con referencias no se puede borrar. |
 
 ## §3 Identidad y cuentas
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Id interno estable | ✅ | `int` autoincremental. |
-| RUT normalizado, único, DV y `K` | ✅ | `RutFormat`, canónico `12345678-5`, índice único. |
-| Nombre y apellido separados | ❌ | Un solo campo `Name`. |
-| Correo normalizado y único | ✅ | `Trim().ToLowerInvariant()` + índice único. |
-| Estado invitada / activa / deshabilitada | 🟡 | Solo `Enabled` (bool). |
-| Fechas de creación/actualización y responsable | ❌ | No en `User`. |
-| Hash adaptativo y migración del SHA-256 | ✅ | PBKDF2 con re-hash transparente. |
-| Activación por correo, recuperación, tokens de un uso, outbox | ❌ | El admin fija la contraseña al registrar. |
+| Id estable, RUT con DV y `K`, correo único | ✅ | Sin cambios respecto de `v1.0.0`. |
+| Nombre y apellido separados | ✅ | `FirstName` y `LastName`. La migración `F7Identity` convierte `Name`. |
+| Estado de la cuenta | ✅ | `AccountStatus` (Pendiente/Activa) + `Enabled`. |
+| Fechas de creación y actualización, y auditoría | ✅ | `CreatedAt`/`UpdatedAt` y `AuditEvent` en las operaciones de administración. |
+| Activación, recuperación, tokens de un uso y outbox | ✅ | `AccountToken` con hash SHA-256 y `EmailOutbox` + `BackgroundService` (Smtp/Pickup). La recuperación responde siempre 202 genérico (casos 22 y 23). |
+| Contraseña temporal y revocación de sesiones | ✅ | `MustChangePassword` + `SessionVersion` (claim `sv`). |
 
 ## §4 Horarios, sesiones y aforo
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Aforo físico de 30 personas | ❌ | Solo capacidad por bloque (semilla 20); no se controla el aforo de la sala. |
-| Reserva con fecha concreta e identificable | 🟡 | `ScheduleSlot` semanal + `Date`; no hay entidad `Session` con estado. |
-| Duración de bloque configurable | 🟡 | Definida por cada `ScheduleSlot`; la UI asume 90 min. |
-| Último cupo protegido con locking | ✅ | `SELECT … FOR UPDATE`, 409; prueba concurrente. |
-| Única reserva activa por usuario/sesión | ✅ | Índice único filtrado `Status = 'Reservado'`. |
-| Única visita abierta por persona | ❌ | Una asistencia por usuario y día (`UserId, Date` único). |
-| No confiar en datos del navegador | ✅ | Identidad y rol desde la sesión; capacidad desde BD. |
+| Aforo físico de 30 personas | ✅ | `Gym:MaxOccupancy` = 30, con `pg_advisory_xact_lock` en la entrada (caso 14). |
+| Reserva con fecha concreta | ✅ | `ScheduleSlot` semanal + `Date`. No se creó una entidad `Session` aparte (no hizo falta). |
+| Duración de bloque | ✅ | La define cada bloque (90 minutos en la semilla). |
+| Último cupo protegido; los cupos de grupos cuentan | ✅ | Bloqueo `FOR UPDATE` del bloque, compartido por reservas y grupos (casos 1 y 2). |
+| Una visita abierta por persona | ✅ | Índice único parcial `ExitAt IS NULL`. |
 
 ## §5 Reservas individuales y prioridad
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Prioridad Deportista → … → Externo | ❌ | Sin categorías ni mecanismo (pendiente de decisión §18.1). |
-| Deportistas: varias sesiones por día | 🟡 | Cualquiera puede reservar varios bloques el mismo día. |
-| Estudiantes: máximo una por día | ❌ | Sin límite diario. |
-| Límites semanales por plan | ❌ | Planes pendientes de definición (correcto no inventarlos). |
+| Prioridad por categoría | ✅ | Ventanas de anticipación por categoría (decisión del usuario). |
+| Deportistas: varios bloques por día | ✅ | Caso 5. |
+| Estudiantes: máximo uno por día | ✅ | Caso 6. |
+| Límites semanales por plan | ⏸ | Los planes no están definidos (caso 7). No se inventaron. |
+| Inasistencia | ✅ | Estado `Inasistencia` asignado por el job de §9. |
 
 ## §6 Reservas grupales por rama
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| `GroupBooking` nominativo, ≥ 60 min, todo o nada, idempotente | ❌ | No existe. |
+| Grupo con 60 minutos o más, todo o nada e idempotente | ✅ | `GroupBooking` en modos `Cupos`/`TotalDisponible` y `Idempotency-Key` obligatoria (casos 2, 8 y 28). |
+| Uso solo por deportistas de la rama | ✅ | `usedSeats` cuenta personas distintas; otra rama → rechazo (caso 9, adaptado). |
 
 ## §7 Entrada, salida y reingreso
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Entrada desde 15 min antes | ✅ | `ScheduleWindow.Tolerance` = 15 min. |
-| Sin ingreso después del fin | ✅ | Ventana `[inicio − 15 min, fin)` (PR #29). |
-| Entradas/salidas ilimitadas, una fila por visita | ❌ | Una entrada y una salida por día; no hay reingreso. |
-| Salida permitida a cuenta deshabilitada que está dentro | ✅ | Permitida aunque la sesión haya terminado (PR #29). |
-| Registrar tipo de documento revisado, operador y motivo de rechazo | 🟡 | Se guarda el RUT del operador; no el documento ni los rechazos. |
+| Ventana `[inicio − 15 min, fin)` | ✅ | Casos 10 y 11, con bordes exactos. |
+| Reingresos ilimitados, una fila por visita | ✅ | `Visit`. Una salida temporal no libera el cupo (casos 12 y 13). |
+| Salida de una cuenta deshabilitada que está dentro | ✅ | Salida por `userId` desde la lista de personas presentes (caso 17). |
+| Registro del documento revisado, el operador y los rechazos | ✅ | `Visit.DocumentType` y `AccessEvent` para cada intento, aceptado o rechazado. |
 
 ## §8 QR e identificación
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Token firmado, no reutilizable fuera de la sesión | 🟡 | HMAC con clave propia, válido **todo el día**, no ligado a una reserva/sesión. |
-| Validar y luego confirmar con documento (dos pasos) | ❌ | Escanear registra la entrada directamente. |
-| Pantalla con nombre, RUT, categoría, rama y sesión | 🟡 | `/qr/my-code` da nombre y RUT; faltan categoría, rama y sesión. |
+| Token firmado por reserva, válido solo en su bloque | ✅ | HMAC-SHA256 v2 `{k, rid/gid, uid, nbf, exp}` con comparación en tiempo constante. Un QR de otra reserva, vencido o manipulado → rechazo (caso 16). |
+| Validar y después confirmar con el documento | ✅ | `validate` no registra la entrada; `entry` exige `documentType` (caso 15). |
+| Pantalla con nombre, RUT, categoría, rama y sesión | ✅ | `GET /me/reservations/{id}/qr` y `/me/group-bookings/{id}/qr`. |
 
 ## §9 Inasistencias y alertas
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Fecha de creación de la reserva | ✅ | `CreatedAt` UTC. |
-| `NoShow`, job idempotente, alertas con acuse | ❌ | No existe. |
+| Job idempotente y alertas con acuse | ✅ | `AttendanceAlert` única por reserva. Las cancelaciones no cuentan y una visita breve cuenta como asistencia. Leer la alerta no borra la inasistencia (casos 18–21). |
 
 ## §10–§12 Administración, KPIs y Excel
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Filtros (período, rama, categoría, estado, usuario) | ❌ | `GET /reservations` devuelve todo sin filtros ni paginación. |
-| KPIs con definición y denominador; aforo global | ❌ | Sin endpoint de métricas (el frontend calcula lo mínimo con datos reales). |
-| Exportación `.xlsx` y su auditoría | ❌ | No existe. |
-| Importación con vista previa e invitaciones | ❌ | No existe. |
-
-## §13–§14 Entidades y contratos
-Faltan `SportBranch`, `Plan`, `Session`, `GroupBooking`, `Visit`, `AttendanceAlert`, `Invitation`, `AuditEvent` y los jobs.
-Las rutas actuales (`/api/v1/auth/...`, `/reservations/user/{id}`, `/attendance/entry`) difieren de las propuestas; el documento
-pide acordarlas antes de conectar React. La API ya está versionada, así que pueden introducirse sin romper la versión 1.
+| Filtros por período, rama, categoría, estado y usuario | ✅ | En usuarios, visitas, alertas, métricas y exportación. |
+| KPIs con definición y aforo global | ✅ | `GET /admin/metrics`, agregados en la BD. Los filtros usan la copia de la reserva (caso 27). |
+| Exportación `.xlsx` auditada y sin secretos | ✅ | Fórmulas neutralizadas, hoja `Filtros` y auditoría `export.created` (caso 26). |
+| Importación con vista previa e invitaciones | ✅ | La vista previa no tiene efectos; la confirmación es transaccional e idempotente (casos 24 y 25). |
 
 ## §16 Seguridad y operación
-| Requisito | Estado | Situación actual |
+| Requisito | Estado | Implementación |
 |---|---|---|
-| Permisos e identidad en servidor | ✅ | JWT en cookie HttpOnly, CSRF, deshabilitados → 401. |
-| `America/Santiago`, instantes UTC, reloj del servidor | ✅ | `IGymClock` + `TimeProvider`. |
-| Migraciones versionadas | ✅ | EF Core; faltan procedimiento de respaldo y rollback. |
-| Índices únicos, FKs y transacciones | ✅ | En reservas y asistencias. |
-| Secretos fuera del repositorio | ✅ | Variables de entorno validadas al arrancar. |
-| Rate limiting en login | ✅ | 5/min por IP. |
-| Rate limiting en recuperación, QR y acceso | ❌ | Solo login. |
-| Auditoría de operaciones administrativas | ❌ | Solo logs con correlación. |
-| `Idempotency-Key` | ❌ | No existe. |
+| Permisos e identidad en el servidor, CSRF y cookie HttpOnly | ✅ | El rol y el estado se releen de la BD en cada petición. |
+| Rate limiting en login, recuperación y acceso | ✅ | Política `access` por operador. Recuperación limitada a 3 por hora por cuenta. |
+| Auditoría de operaciones administrativas | ✅ | `AuditEvent`. |
+| `Idempotency-Key` | ✅ | `IdempotencyRecord`: 422 si la misma clave llega con otro cuerpo; expira a las 24 horas. |
+| Migraciones versionadas | ✅ | `F7Identity`, `F7PasswordAndBookingSnapshot` y `RequerimientosNov2026`. Elimina la tabla `Attendances` (sin datos que conservar). |
 
 ## §17 Casos de aceptación
 | # | Estado | # | Estado | # | Estado | # | Estado |
 |---|---|---|---|---|---|---|---|
-| 1 | ✅ | 8 | ❌ | 15 | ❌ | 22 | ❌ |
-| 2 | ❌ | 9 | ❌ | 16 | 🟡 manipulado/vencido ✅; por reserva n/a | 23 | ❌ |
-| 3 | ❌ | 10 | ✅ | 17 | ✅ | 24 | ❌ |
-| 4 | ✅ | 11 | ✅ | 18 | ❌ | 25 | ❌ |
-| 5 | 🟡 sin categoría | 12 | ❌ | 19 | ❌ | 26 | ❌ |
-| 6 | ❌ | 13 | ❌ | 20 | ❌ | 27 | ❌ |
-| 7 | ❌ (planes pendientes) | 14 | ❌ | 21 | ❌ | 28 | ❌ |
+| 1 | ✅ | 8 | ✅ | 15 | ✅ | 22 | ✅ |
+| 2 | ✅ | 9 | ✅ adaptado | 16 | ✅ | 23 | ✅ |
+| 3 | ✅ | 10 | ✅ | 17 | ✅ | 24 | ✅ |
+| 4 | ✅ | 11 | ✅ | 18 | ✅ | 25 | ✅ |
+| 5 | ✅ | 12 | ✅ | 19 | ✅ | 26 | ✅ |
+| 6 | ✅ | 13 | ✅ | 20 | ✅ | 27 | ✅ |
+| 7 | ⏸ planes sin definir | 14 | ✅ | 21 | ✅ | 28 | ✅ |
 
-Total: 5 ✅, 3 🟡, 20 ❌ (tras PR #29).
+Total: 27 ✅ y 1 ⏸ (caso 7, pendiente de que el cliente defina los planes).
 
-## Propuesta de siguiente fase (requiere decisiones de §18)
-1. **F7 – Modelo de identidad:** roles con Recepcionista, categorías, ramas, nombre/apellido, estados de cuenta, auditoría.
-2. **F8 – Sesiones y visitas:** `Session`, aforo físico 30, visitas con reingreso, QR por reserva, validación + confirmación,
-   ventana `[inicio − 15, fin)`, salida siempre permitida.
-3. **F9 – Reglas de reserva:** límite diario de estudiantes, grupos de rama, `Idempotency-Key`.
-4. **F10 – Cuentas por correo:** invitaciones, recuperación, outbox (requiere proveedor de correo y dominio).
-5. **F11 – Inasistencias, KPIs y Excel.**
-
-Bloqueantes de decisión: mecanismo de prioridad, tolerancia al fin de sesión, una o varias ramas, grupos nominativos,
-autenticación por rol y proveedor de correo.
+## Pendientes
+- **Planes y límites semanales (caso 7):** a la espera de la definición del cliente.
+- **Correo real:** completar en el `.env` las credenciales SMTP de Brevo y confirmar el remitente (`no-replay@` o `no-reply@agencia180.cl`).

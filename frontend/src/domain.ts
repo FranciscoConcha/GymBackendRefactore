@@ -1,71 +1,189 @@
-export type Role = "student" | "admin";
+﻿import type {
+  AlertResponse,
+  BranchResponse,
+  ReservationResponse,
+  ScheduleResponse,
+  UserResponse,
+  VisitResponse,
+} from "./api";
+export type Role = "student" | "admin" | "reception";
+export type { Category, ReservationStatus } from "./api";
+import type { Category, ReservationStatus } from "./api";
+export const CATEGORIES: Category[] = [
+  "Deportista",
+  "Estudiante",
+  "Funcionario",
+  "Externo",
+];
 export interface Member {
-  id: number;
+  id: string;
   name: string;
+  rut: string;
   email: string;
   category: string;
+  branch?: string;
+  branchId?: number;
   enabled: boolean;
+  accountStatus?: string;
+  role?: UserResponse["role"];
+  username?: string;
+  firstName?: string;
+  lastName?: string;
 }
 export interface Slot {
-  id: number;
+  id: string;
   date: string;
   start: string;
   end: string;
   capacity: number;
   occupied: number;
-  zone: string;
+  groupSeats: number;
+  individualReservations: number;
 }
 export interface Reservation {
-  id: number;
-  memberId: number;
+  id: string;
+  memberId: string;
   userName: string;
   slot: Slot;
-  status: import("./api").ReservationResponse["status"];
+  status: ReservationStatus;
+  createdAt: string;
+  branch?: string;
+  entry?: string;
+  exit?: string;
+  visits?: VisitResponse[];
 }
-export interface AppData {
+export interface ViewState {
   members: Member[];
   reservations: Reservation[];
-  slots: Slot[];
+  alerts: AlertResponse[];
+  branches: BranchResponse[];
 }
-export function remaining(slot: Slot): number {
-  return Math.max(0, slot.capacity - slot.occupied);
+export const emptyState: ViewState = {
+  members: [],
+  reservations: [],
+  alerts: [],
+  branches: [],
+};
+export function memberFrom(user: UserResponse): Member {
+  return {
+    id: String(user.id),
+    name: user.fullName,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    rut: user.rut,
+    email: user.email,
+    category: user.category ?? "",
+    branch: user.sportBranch?.name,
+    branchId: user.sportBranch?.id,
+    enabled: user.enabled,
+    accountStatus: user.status,
+    role: user.role,
+    username: user.username,
+  };
 }
-export function localDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+export function slotFrom(slot: ScheduleResponse): Slot {
+  return {
+    id: String(slot.id),
+    date: slot.date,
+    start: slot.startTime,
+    end: slot.endTime,
+    capacity: slot.capacity,
+    occupied: slot.reservedCount,
+    groupSeats: slot.groupSeats,
+    individualReservations: slot.individualReservations,
+  };
 }
-
-export function getDays(today = new Date()): string[] {
-  const dates: string[] = [];
-  const day = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  while (dates.length < 6) {
-    if (day.getDay() !== 0) dates.push(localDate(day));
-    day.setDate(day.getDate() + 1);
+export function reservationFrom(
+  r: ReservationResponse,
+  branches: BranchResponse[] = [],
+): Reservation {
+  return {
+    id: String(r.id),
+    memberId: String(r.userId),
+    userName: r.userName,
+    status: r.status,
+    createdAt: r.createdAt,
+    branch: branches.find((b) => b.id === r.sportBranchId)?.name,
+    slot: {
+      id: String(r.scheduleSlotId),
+      date: r.date,
+      start: r.startTime,
+      end: r.endTime,
+      capacity: r.capacity,
+      occupied: 0,
+      groupSeats: 0,
+      individualReservations: 0,
+    },
+  };
+}
+export function rutCheckDigit(body: string): string {
+  let total = 0,
+    factor = 2;
+  for (let i = body.length - 1; i >= 0; i--) {
+    total += Number(body[i]) * factor;
+    factor = factor === 7 ? 2 : factor + 1;
   }
-  return dates;
+  const result = 11 - (total % 11);
+  return result === 11 ? "0" : result === 10 ? "K" : String(result);
 }
-
-export function shortDate(
-  value: string,
-  options?: Intl.DateTimeFormatOptions,
-): string {
+export function normalizeRut(value: string) {
+  return value.replace(/[.\s-]/g, "").toUpperCase();
+}
+export function isValidRut(value: string) {
+  const rut = normalizeRut(value);
+  return (
+    /^\d{7,8}[0-9K]$/.test(rut) &&
+    rutCheckDigit(rut.slice(0, -1)) === rut.at(-1)
+  );
+}
+export function formatRut(value: string) {
+  const rut = normalizeRut(value);
+  return rut
+    ? `${rut.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, ".")}-${rut.at(-1)}`
+    : "";
+}
+export function localDate(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Santiago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  return ["year", "month", "day"]
+    .map((k) => parts.find((p) => p.type === k)!.value)
+    .join("-");
+}
+export function getDays(today = new Date()): string[] {
+  const start = localDate(today);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(`${start}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + i);
+    return localDate(d);
+  });
+}
+export function shortDate(value: string, options?: Intl.DateTimeFormatOptions) {
   return new Intl.DateTimeFormat(
     "es-CL",
     options ?? { weekday: "long", day: "numeric", month: "long" },
   ).format(new Date(`${value}T12:00:00`));
 }
-
-/** Orientativo para la interfaz: el servidor decide con la hora de Santiago. */
-export function hasStarted(slot: Slot, now = new Date()): boolean {
-  const today = localDate(now);
-  if (slot.date !== today) return slot.date < today;
-  const current = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-  return current >= slot.start;
+// Schedule dates and times belong to Santiago regardless of the browser's timezone.
+export function hasStarted(slot: Slot, now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Santiago",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(now);
+  return `${slot.date}T${slot.start}` <= `${localDate(now)}T${parts}`;
 }
-
-export function durationMinutes(slot: Slot): number {
-  const minutes = (value: string) => {
-    const [h, m] = value.split(":").map(Number);
-    return h * 60 + m;
-  };
-  return Math.max(0, minutes(slot.end) - minutes(slot.start));
+export function remaining(slot: Slot) {
+  return Math.max(0, slot.capacity - slot.occupied);
+}
+export function qrValidity(from: string, until: string, now = Date.now()) {
+  return now < Date.parse(from)
+    ? "El código QR todavía no está vigente."
+    : now >= Date.parse(until)
+      ? "El código QR ya venció."
+      : "Código QR vigente para este bloque.";
 }

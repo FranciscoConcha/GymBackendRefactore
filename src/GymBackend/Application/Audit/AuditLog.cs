@@ -15,7 +15,7 @@ public sealed class AuditLog(AppDbContext context, IGymClock clock, IHttpContext
             OccurredAt = clock.UtcNow,
             ActorUserId = accessor.HttpContext?.User.GetUserId(),
             Action = action,
-            TargetType = target is User ? "User" : "SportBranch",
+            TargetType = target.GetType().Name,
             Details = JsonSerializer.Serialize(changedFields),
         };
         // Resolve generated identifiers inside the same transaction as the business changes.
@@ -25,6 +25,7 @@ public sealed class AuditLog(AppDbContext context, IGymClock clock, IHttpContext
             {
                 User user => user.Id,
                 SportBranch branch => branch.Id,
+                GroupBooking group => group.Id,
                 _ => throw new InvalidOperationException("Tipo de auditor\u00eda no admitido."),
             }).ToString(CultureInfo.InvariantCulture);
             return audit;

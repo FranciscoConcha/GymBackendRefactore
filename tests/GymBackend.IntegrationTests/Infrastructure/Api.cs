@@ -32,9 +32,12 @@ internal static class Api
     internal static async Task<JsonElement> Reservation(HttpClient client, int slotId, DateOnly date) =>
         (await Expect(await Reserve(client, slotId, date), HttpStatusCode.OK, "Reserva creada correctamente.")).GetProperty("reservation");
 
-    internal static async Task<string> Qr(HttpClient client) =>
-        (await Expect(await client.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.OK)).GetProperty("token").GetString()!;
+    internal static async Task<string> Qr(HttpClient client, int reservationId) =>
+        (await Expect(await client.GetAsync($"/api/v1/me/reservations/{reservationId}/qr", Ct), HttpStatusCode.OK)).GetProperty("token").GetString()!;
 
-    internal static Task<HttpResponseMessage> Attendance(HttpClient client, string action, string token) =>
-        client.PostAsJsonAsync($"/api/v1/attendance/{action}", new { token }, JsonOptions, Ct);
+    internal static Task<HttpResponseMessage> Access(HttpClient client, string action, string token) =>
+        client.PostAsJsonAsync($"/api/v1/access/{action}", new { token, documentType = "CarnetIdentidad" }, JsonOptions, Ct);
+
+    internal static Task<HttpResponseMessage> Exit(HttpClient client, int userId) =>
+        client.PostAsJsonAsync("/api/v1/access/exit", new { userId }, JsonOptions, Ct);
 }

@@ -1,36 +1,43 @@
-import { expect, it } from "vitest";
-import { durationMinutes, getDays, hasStarted, remaining } from "./domain";
-it("omite domingos", () => {
-  expect(getDays(new Date("2026-11-14T12:00:00"))[1]).toBe("2026-11-16");
+﻿import { expect, it } from "vitest";
+import {
+  formatRut,
+  isValidRut,
+  localDate,
+  hasStarted,
+  remaining,
+  slotFrom,
+  qrValidity,
+} from "./domain";
+it("normaliza y valida el RUT", () => {
+  expect(formatRut("123456785")).toBe("12.345.678-5");
+  expect(isValidRut("12.345.678-5")).toBe(true);
+  expect(isValidRut("12.345.678-0")).toBe(false);
 });
-it("calcula cupos sin valores negativos", () => {
-  expect(
-    remaining({
-      id: 1,
-      date: "2026-11-14",
-      start: "08:00",
-      end: "09:00",
-      capacity: 0,
-      occupied: 2,
-      zone: "Sala",
-    }),
-  ).toBe(0);
+it("no suma otra vez las reservas a reservedCount, que incluye los grupos", () => {
+  const slot = slotFrom({
+    id: 1,
+    day: "Lunes",
+    date: "2026-11-19",
+    startTime: "08:00",
+    endTime: "09:30",
+    zone: "Sala",
+    capacity: 30,
+    reservedCount: 18,
+    individualReservations: 8,
+    groupSeats: 10,
+  });
+  expect(remaining(slot)).toBe(12);
+  expect(slot.groupSeats).toBe(10);
+  expect(hasStarted(slot, new Date("2026-11-19T10:59:00Z"))).toBe(false);
+  expect(hasStarted(slot, new Date("2026-11-19T11:00:00Z"))).toBe(true);
 });
-const slot = {
-  id: 1,
-  date: "2026-11-18",
-  start: "08:00",
-  end: "09:30",
-  capacity: 20,
-  occupied: 0,
-  zone: "Sala",
-};
-it("bloque iniciado según fecha y hora", () => {
-  expect(hasStarted(slot, new Date("2026-11-18T07:59:00"))).toBe(false);
-  expect(hasStarted(slot, new Date("2026-11-18T08:00:00"))).toBe(true);
-  expect(hasStarted(slot, new Date("2026-11-17T23:00:00"))).toBe(false);
-  expect(hasStarted(slot, new Date("2026-11-19T07:00:00"))).toBe(true);
+it("usa la fecha de Santiago y no la del navegador", () => {
+  expect(localDate(new Date("2026-11-19T01:00:00Z"))).toBe("2026-11-18");
 });
-it("duración del bloque en minutos", () => {
-  expect(durationMinutes(slot)).toBe(90);
+it("informa los límites inclusivo y exclusivo de vigencia", () => {
+  const from = "2026-11-19T10:45:00Z",
+    until = "2026-11-19T12:30:00Z";
+  expect(qrValidity(from, until, Date.parse(from) - 1)).toContain("todavía");
+  expect(qrValidity(from, until, Date.parse(from))).toContain("vigente para");
+  expect(qrValidity(from, until, Date.parse(until))).toContain("venció");
 });

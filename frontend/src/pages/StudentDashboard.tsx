@@ -173,7 +173,8 @@ export default function StudentDashboard({
           <button className="inline-link" onClick={onQr}>
             Mi código QR
           </button>
-          . Preséntalo al entrar y al salir.
+          . Preséntalo al entrar. Para salir, recepción te selecciona en la
+          lista.
         </p>
       </div>
     </>

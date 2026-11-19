@@ -14,6 +14,25 @@ namespace GymBackend.IntegrationTests.Auth;
 
 public sealed class IdentityTests(GymApiFactory factory)
 {
+    [Fact]
+    public async Task EditUsername_NormalizesRequiresUniqueStaffNameAndClearsForUser()
+    {
+        var user = await factory.CreateClientUserAsync();
+        using var client = user.Client;
+        using var admin = await factory.CreateAdminClientAsync();
+        var path = $"/api/v1/auth/users/{user.UserId}";
+        await Expect(await admin.PatchAsJsonAsync(path, new { role = Roles.Recepcionista, category = (string?)null }, JsonOptions, Ct), HttpStatusCode.BadRequest);
+        await Expect(await admin.PatchAsJsonAsync(path, new { role = Roles.Recepcionista, category = (string?)null, username = new string('a', 65) }, JsonOptions, Ct), HttpStatusCode.BadRequest);
+        await Expect(await admin.PatchAsJsonAsync(path, new { role = Roles.Recepcionista, category = (string?)null, username = factory.AdminUsername.ToUpperInvariant() }, JsonOptions, Ct), HttpStatusCode.Conflict);
+        var username = $"staff-{Guid.NewGuid():N}";
+        var promoted = await Expect(await admin.PatchAsJsonAsync(path, new { role = Roles.Recepcionista, category = (string?)null, username = $" {username.ToUpperInvariant()} " }, JsonOptions, Ct), HttpStatusCode.OK);
+        Assert.Equal(username, promoted.GetProperty("user").GetProperty("username").GetString());
+        using var login = factory.CreateClient();
+        await Expect(await login.PostAsJsonAsync("/api/v1/auth/admin-login", new { username, password = user.Password }, JsonOptions, Ct), HttpStatusCode.OK);
+        var demoted = await Expect(await admin.PatchAsJsonAsync(path, new { role = Roles.Usuario, category = UserCategories.Externo }, JsonOptions, Ct), HttpStatusCode.OK);
+        Assert.Equal(string.Empty, demoted.GetProperty("user").GetProperty("username").GetString());
+    }
+
     private static object Registration(string role = Roles.Usuario, string? category = UserCategories.Estudiante,
         int? sportBranchId = null, string? username = null) => new
         {
@@ -47,13 +66,13 @@ public sealed class IdentityTests(GymApiFactory factory)
         var changed = await Expect(await admin.PatchAsJsonAsync($"/api/v1/auth/users/{receptionist.UserId}",
             new { role = Roles.Usuario, category = UserCategories.Externo }, JsonOptions, Ct), HttpStatusCode.OK);
         Assert.Equal(Roles.Usuario, changed.GetProperty("user").GetProperty("role").GetString());
-        using var entry = await Api.Attendance(staff, "entry", "invalid");
+        using var entry = await Api.Access(staff, "entry", "invalid");
         Assert.Equal(HttpStatusCode.Forbidden, entry.StatusCode);
         // Categories do not grant access to staff operations.
         using var users = await staff.GetAsync("/api/v1/auth/users", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, users.StatusCode);
         await Expect(await admin.PatchAsJsonAsync($"/api/v1/auth/users/{receptionist.UserId}",
-            new { role = Roles.Recepcionista, category = (string?)null, sportBranchId = (int?)null }, JsonOptions, Ct), HttpStatusCode.OK);
+            new { role = Roles.Recepcionista, username = receptionist.Username, category = (string?)null, sportBranchId = (int?)null }, JsonOptions, Ct), HttpStatusCode.OK);
         var me = await Expect(await staff.GetAsync("/api/v1/auth/me", Ct), HttpStatusCode.OK);
         Assert.Equal(Roles.Recepcionista, me.GetProperty("role").GetString());
         Assert.Equal(JsonValueKind.Null, me.GetProperty("category").ValueKind);
@@ -222,11 +241,11 @@ public sealed class IdentityTests(GymApiFactory factory)
         using var timedUser = host.CreateClient();
         timedUser.DefaultRequestHeaders.Authorization = userClient.DefaultRequestHeaders.Authorization;
         var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(10, 0), new TimeOnly(11, 0));
-        await factory.InsertReservationAsync(user.UserId, slot.Id, new DateOnly(2026, 11, 17));
-        var qr = await Api.Qr(timedUser);
-        var entry = await Expect(await Api.Attendance(timedStaff, "entry", qr), HttpStatusCode.OK);
-        Assert.Equal($"Test {user.Rut}", entry.GetProperty("attendance").GetProperty("userName").GetString());
-        await Expect(await Api.Attendance(timedStaff, "exit", qr), HttpStatusCode.OK);
+        var qrReservation = await factory.InsertReservationAsync(user.UserId, slot.Id, new DateOnly(2026, 11, 17));
+        var qr = await Api.Qr(timedUser, qrReservation.Id);
+        var entry = await Expect(await Api.Access(timedStaff, "entry", qr), HttpStatusCode.OK);
+        Assert.Equal($"Test {user.Rut}", entry.GetProperty("visit").GetProperty("fullName").GetString());
+        await Expect(await Api.Exit(timedStaff, user.UserId), HttpStatusCode.OK);
         await Expect(await staff.PostAsync("/api/v1/auth/logout", null, Ct), HttpStatusCode.OK);
     }
 

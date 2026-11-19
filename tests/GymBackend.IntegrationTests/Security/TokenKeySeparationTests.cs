@@ -23,7 +23,7 @@ public sealed class TokenKeySeparationTests(GymApiFactory factory)
         using var original = user.Client;
         using var client = factory.CreateClientWithToken(factory.CreateJwt(
             user.UserId.ToString(), "Usuario", user.Rut, issuer: issuer, audience: audience));
-        using var response = await client.GetAsync("/api/v1/qr/my-code", Ct);
+        using var response = await client.GetAsync("/api/v1/me/reservations/1/qr", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
@@ -32,23 +32,25 @@ public sealed class TokenKeySeparationTests(GymApiFactory factory)
     {
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
-        var qr = await Api.Qr(client);
         var today = factory.Services.GetRequiredService<IGymClock>().Today;
-        Assert.True(QrTokenFormat.TryValidate(qr, factory.QrKey, today, out var rut, out _));
-        Assert.Equal(user.Rut, rut);
+        var slot = await factory.CreateSlotAsync(today.DayOfWeek, new(10, 0), new(11, 0));
+        var reservation = await factory.InsertReservationAsync(user.UserId, slot.Id, today);
+        var qr = await Api.Qr(client, reservation.Id);
+        Assert.True(AccessQrToken.TryRead(qr, factory.QrKey, out var payload));
+        Assert.Equal(user.UserId, payload.UserId);
         using var qrBearer = factory.CreateClientWithToken(qr);
-        using var denied = await qrBearer.GetAsync("/api/v1/qr/my-code", Ct);
+        using var denied = await qrBearer.GetAsync("/api/v1/me/reservations/1/qr", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         using var wrongKey = factory.CreateClientWithToken(factory.CreateJwt(
             user.UserId.ToString(), "Usuario", user.Rut, signingKey: factory.QrKey));
-        using var wrongKeyResponse = await wrongKey.GetAsync("/api/v1/qr/my-code", Ct);
+        using var wrongKeyResponse = await wrongKey.GetAsync("/api/v1/me/reservations/1/qr", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, wrongKeyResponse.StatusCode);
         using var admin = await factory.CreateAdminClientAsync();
-        foreach (var action in new[] { "entry", "exit" })
+        foreach (var action in new[] { "validate", "entry" })
         {
-            await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(user.Rut, factory.JwtKey, today)),
+            await Expect(await Api.Access(admin, action, AccessQrToken.Create(payload, factory.JwtKey)),
                 HttpStatusCode.BadRequest, "Código QR inválido.");
-            await Expect(await Api.Attendance(admin, action, client.DefaultRequestHeaders.Authorization!.Parameter!),
+            await Expect(await Api.Access(admin, action, client.DefaultRequestHeaders.Authorization!.Parameter!),
                 HttpStatusCode.BadRequest, "Código QR inválido.");
         }
     }
@@ -69,6 +71,7 @@ public sealed class TokenKeySeparationTests(GymApiFactory factory)
                 ["Jwt:Audience"] = "clients",
                 ["Qr:SigningKey"] = signingKey,
             }).Build());
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostEnvironment>(new Microsoft.Extensions.Hosting.Internal.HostingEnvironment { EnvironmentName = "Development" });
         services.AddGymOptions();
         using var provider = services.BuildServiceProvider();
         var error = Assert.Throws<OptionsValidationException>(() =>

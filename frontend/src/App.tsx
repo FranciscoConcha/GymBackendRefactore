@@ -1,6 +1,5 @@
+import { SelectField } from "./components/SelectField";
 import {
-  lazy,
-  Suspense,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -9,15 +8,14 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ArrowDownLeft,
   ArrowRight,
-  ArrowUpRight,
   CalendarDays,
   Check,
   CheckCircle2,
   ChevronRight,
   Clock3,
   Dumbbell,
+  FileSpreadsheet,
   History,
   LayoutDashboard,
   LogOut,
@@ -31,49 +29,76 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
 import { useLocation, useNavigate } from "react-router-dom";
 import AdminDashboard from "./pages/AdminDashboard";
 import StudentDashboard from "./pages/StudentDashboard";
+import ReceptionDashboard from "./pages/ReceptionDashboard";
+import GroupBooking from "./pages/GroupBooking";
+import ExcelPanel from "./pages/ExcelPanel";
+import AccessPanel from "./pages/AccessPanel";
 import { Badge, Button } from "./components/ui";
 import {
+  CATEGORIES,
+  formatRut,
+  isValidRut,
   getDays,
   remaining,
   shortDate,
-  type AppData,
+  hasStarted,
+  slotFrom,
+  memberFrom,
+  reservationFrom,
+  emptyState,
+  type ViewState,
   type Member,
   type Reservation,
   type Role,
   type Slot,
-  durationMinutes,
-  hasStarted,
 } from "./domain";
-import {
-  api,
-  ApiError,
-  onUnauthorized,
-  type UserResponse,
-  type QrResponse,
-  type RegisterRequest,
-} from "./api";
+import { api, type UserResponse } from "./api";
+import Session from "./Session";
+import { LoadStatus, useApiData } from "./remote";
+import BlockQr from "./pages/BlockQr";
+import { BranchesPanel, HistoryPanel, AlertsPanel } from "./pages/Records";
 
-const Camera = lazy(() => import("./Camera"));
+export default function App() {
+  return <Session>{(user) => <Workspace key={user.id} user={user} />}</Session>;
+}
+
 const studentNav: [string, string, LucideIcon][] = [
   ["inicio", "Inicio", LayoutDashboard],
   ["horarios", "Reservar", CalendarDays],
   ["reservas", "Mis reservas", History],
   ["qr", "Mi código QR", QrCode],
+  ["visitas", "Mis visitas", History],
+  ["grupos", "Grupos de mi rama", Users],
 ];
 const adminNav: [string, string, LucideIcon][] = [
   ["inicio", "Resumen", LayoutDashboard],
   ["acceso", "Control de acceso", ScanLine],
   ["usuarios", "Usuarios", Users],
   ["reservas", "Reservas", CalendarDays],
+  ["grupos", "Sesiones por rama", Users],
+  ["archivos", "Excel", FileSpreadsheet],
+  ["ramas", "Ramas", Users],
+  ["alertas", "Inasistencias", History],
+  ["visitas", "Visitas", History],
 ];
+const receptionNav: [string, string, LucideIcon][] = [
+  ["inicio", "Estado actual", Users],
+  ["acceso", "Escanear QR", ScanLine],
+];
+const rolePath = (role: Role | null) =>
+  role === "admin"
+    ? "admin"
+    : role === "reception"
+      ? "recepcion"
+      : "estudiante";
 const statusClass: Record<string, string> = {
   Reservado: "blue",
-  Asistió: "neutral",
+  Asistió: "green",
   Cancelado: "red",
+  Inasistencia: "gold",
 };
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -126,7 +151,10 @@ function Modal({
       ref={ref}
       className="modal"
       aria-labelledby="modal-title"
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
     >
       <div className="modal-heading">
         <h2 id="modal-title">{title}</h2>
@@ -153,28 +181,43 @@ function SlotDetails({ slot }: { slot: Slot }) {
   );
 }
 
-export default function App() {
+function Workspace({ user }: { user: UserResponse }) {
   const location = useLocation();
   const navigate = useNavigate();
   const segments = location.pathname.split("/").filter(Boolean);
-  const [user, setUser] = useState<UserResponse | null>(null);
-  const role: Role | null = user
-    ? user.role === "Admin"
+  const role: Role =
+    user.role === "Admin"
       ? "admin"
-      : "student"
-    : null;
-  const [restoring, setRestoring] = useState(true);
-  const [loginAdmin, setLoginAdmin] = useState(false);
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
+      : user.role === "Recepcionista"
+        ? "reception"
+        : "student";
+  const [state, setState] = useState<ViewState>(emptyState);
   const [revision, setRevision] = useState(0);
-  const [qr, setQr] = useState<QrResponse | null>(null);
-  const [state, setState] = useState<AppData>({
-    members: [],
-    reservations: [],
-    slots: [],
-  });
+  const refresh = () => setRevision((value) => value + 1);
+  const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const reserveKey = useRef<{ body: string; key: string } | null>(null);
+  const remote = useApiData(async () => {
+    const [branches, members, reservations, alerts] = await Promise.all([
+      role === "admin" ? api.branches() : Promise.resolve([]),
+      role === "admin" ? api.users() : Promise.resolve([user]),
+      role === "reception" ? Promise.resolve([]) : api.reservations(user),
+      role === "student" ? api.alerts() : Promise.resolve([]),
+    ]);
+    return {
+      members: members.map(memberFrom),
+      reservations: reservations.map((r) => reservationFrom(r, branches)),
+      alerts,
+      branches,
+    };
+  }, [user, revision, location.pathname]);
+  useEffect(() => {
+    if (remote.data) setState(remote.data);
+  }, [remote.data]);
+  useEffect(() => {
+    if (segments[0] !== rolePath(role))
+      navigate(`/${rolePath(role)}/inicio`, { replace: true });
+  }, [role, location.pathname]);
   const page = segments[1] || "inicio";
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(
@@ -187,23 +230,44 @@ export default function App() {
   const [selected, setSelected] = useState<Slot | null>(null);
   const [toCancel, setToCancel] = useState<Reservation | null>(null);
   const [showMember, setShowMember] = useState(false);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [scheduleDate, setScheduleDate] = useState(() => getDays()[0]);
   const heading = useRef<HTMLHeadingElement>(null);
-  const member: Member = {
-    id: user?.id ?? 0,
-    name: user?.name ?? "",
-    email: user?.email ?? "",
-    category: user?.userType ?? "",
-    enabled: user?.enabled ?? false,
-  };
-  const nav = role === "admin" ? adminNav : studentNav;
+  const member = memberFrom(user);
+  const nav =
+    role === "admin"
+      ? adminNav
+      : role === "reception"
+        ? receptionNav
+        : studentNav.filter(
+            ([id]) => id !== "grupos" || user.category === "Deportista",
+          );
+  const roleName =
+    role === "admin"
+      ? "Administrador"
+      : role === "reception"
+        ? "Recepcionista"
+        : member.name;
+  const initials =
+    role === "admin"
+      ? "AD"
+      : role === "reception"
+        ? "RC"
+        : member.name
+            .split(" ")
+            .map((value) => value[0])
+            .slice(0, 2)
+            .join("");
   const currentPage =
-    nav.some((n) => n[0] === page) || page === "perfil" ? page : "inicio";
+    nav.some((n) => n[0] === page) ||
+    (page === "perfil" && role !== "reception")
+      ? page
+      : "inicio";
   const myReservations = state.reservations.filter(
-    (r) => r.memberId === user?.id,
+    (r) => r.memberId === member.id,
   );
   const upcoming = [...myReservations]
-    .filter((r) => r.status === "Reservado")
+    .filter((r) => ["Reservado", "Asistió"].includes(r.status))
     .sort((a, b) =>
       `${a.slot.date}${a.slot.start}`.localeCompare(
         `${b.slot.date}${b.slot.start}`,
@@ -252,98 +316,6 @@ export default function App() {
   useLayoutEffect(() => {
     heading.current?.focus();
   }, [currentPage, role]);
-  useEffect(
-    () =>
-      onUnauthorized(() => {
-        setUser(null);
-        setState({ members: [], reservations: [], slots: [] });
-        setQr(null);
-        setSelected(null);
-        setToCancel(null);
-        setShowMember(false);
-        setMenu(false);
-        notify("Tu sesión ha expirado. Vuelve a iniciar sesión.", true);
-        navigate("/", { replace: true });
-      }),
-    [navigate],
-  );
-  useEffect(() => {
-    api
-      .me()
-      .then(setUser)
-      .catch((error) => {
-        if (!(error instanceof ApiError && error.status === 401))
-          notify(error.message, true);
-      })
-      .finally(() => setRestoring(false));
-  }, []);
-  useEffect(() => {
-    if (!user) return;
-    const portal = user.role === "Admin" ? "admin" : "estudiante";
-    if (segments[0] !== portal)
-      navigate(`/${portal}/inicio`, { replace: true });
-  }, [user, location.pathname, navigate]);
-  useEffect(() => {
-    if (!user) return;
-    let active = true;
-    Promise.all([
-      api.reservations(user),
-      user.role === "Admin" ? api.users() : Promise.resolve([user]),
-      api.schedules(scheduleDate),
-    ])
-      .then(([reservations, users, slots]) => {
-        if (active)
-          setState({
-            members: users.map((u) => ({ ...u, category: u.userType })),
-            slots: slots.map((v) => ({
-              id: v.id,
-              date: v.date,
-              start: v.startTime,
-              end: v.endTime,
-              capacity: v.capacity,
-              occupied: v.reservedCount,
-              zone: v.zone,
-            })),
-            reservations: reservations.map((r) => ({
-              id: r.id,
-              memberId: r.userId,
-              userName: r.userName,
-              status: r.status,
-              slot: {
-                id: r.scheduleSlotId,
-                date: r.date,
-                start: r.startTime,
-                end: r.endTime,
-                capacity: r.capacity,
-                occupied: 0,
-                zone: r.zone,
-              },
-            })),
-          });
-      })
-      .catch((error) => {
-        if (active) notify(error.message, true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [user, revision, scheduleDate, location.pathname]);
-  useEffect(() => {
-    setQr(null);
-    if (!user || currentPage !== "qr") return;
-    let active = true;
-    api
-      .qr()
-      .then((value) => {
-        if (active) setQr(value);
-      })
-      .catch((error) => {
-        if (active) notify(error.message, true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [user, currentPage]);
   useEffect(() => {
     if (!notice) return;
     const timeout = setTimeout(() => setNotice(""), 6500);
@@ -351,7 +323,7 @@ export default function App() {
   }, [notice]);
 
   function go(destination: string) {
-    navigate(`/${role === "admin" ? "admin" : "estudiante"}/${destination}`);
+    navigate(`/${rolePath(role)}/${destination}`);
     setMenu(false);
   }
   function closeMenu() {
@@ -366,118 +338,38 @@ export default function App() {
     operation: () => Promise<unknown>,
     success: string,
   ): Promise<boolean> {
-    if (busy) return false;
+    if (submitting.current) return false;
+    submitting.current = true;
     setBusy(true);
     try {
       await operation();
-      setRevision((v) => v + 1);
+      refresh();
       notify(success);
       return true;
-    } catch (error) {
+    } catch (cause) {
       notify(
-        error instanceof Error
-          ? error.message
+        cause instanceof Error
+          ? cause.message
           : "No se pudo completar la acción.",
         true,
       );
       return false;
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
-  async function login(e: FormEvent) {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    try {
-      const result = await api.login(loginAdmin, identifier, password);
-      setUser(await api.me());
-      setNotice(result.message);
-      setIdentifier("");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "No se pudo iniciar sesión.",
-        true,
-      );
-    } finally {
-      setPassword("");
-      setBusy(false);
-    }
+  async function acknowledge() {
+    await update(
+      () =>
+        Promise.all(
+          state.alerts
+            .filter((a) => !a.acknowledgedAt)
+            .map((a) => api.acknowledge(a.id)),
+        ),
+      "Alertas leídas.",
+    );
   }
-  if (restoring)
-    return (
-      <main>
-        <p role="status">Restaurando sesión…</p>
-      </main>
-    );
-  if (!role)
-    return (
-      <div className="login-page">
-        <section className="login-story" aria-label="Deportes UCN">
-          <Brand inverse />
-          <div className="login-copy">
-            <span className="eyebrow">DEPORTES UCN</span>
-            <h1>
-              Reserva tu
-              <br />
-              <span>próxima sesión.</span>
-            </h1>
-            <p>Sala de pesas · Deportes UCN</p>
-            <div className="story-line" />
-            <span className="story-bottom">
-              <Dumbbell size={20} aria-hidden="true" /> Sala de pesas ·
-              Universidad Católica del Norte
-            </span>
-          </div>
-        </section>
-        <main className="login-main">
-          <div className="login-form">
-            <span className="eyebrow">UNIVERSIDAD CATÓLICA DEL NORTE</span>
-            <h2>Accede a tu espacio</h2>
-            <form onSubmit={login} className="member-form">
-              <label className="field">
-                Portal
-                <select
-                  value={loginAdmin ? "admin" : "user"}
-                  onChange={(e) => {
-                    setLoginAdmin(e.target.value === "admin");
-                    setPassword("");
-                  }}
-                >
-                  <option value="user">Usuario</option>
-                  <option value="admin">Administración</option>
-                </select>
-              </label>
-              <label className="field">
-                {loginAdmin ? "Usuario" : "RUT"}
-                <input
-                  required
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  autoComplete="username"
-                />
-              </label>
-              <label className="field">
-                Contraseña
-                <input
-                  required
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </label>
-              {notice && <p role="alert">{notice}</p>}
-              <button className="button" disabled={busy} type="submit">
-                Ingresar
-              </button>
-            </form>
-          </div>
-          <span className="login-footer">Deportes UCN · Sala de pesas</span>
-        </main>
-      </div>
-    );
-
   return (
     <div className="app-shell">
       <a
@@ -514,13 +406,17 @@ export default function App() {
         </button>
         <Brand inverse />
         <div className="sidebar-section">
-          {role === "admin" ? "ADMINISTRACIÓN" : "MI ESPACIO"}
+          {role === "admin"
+            ? "ADMINISTRACIÓN"
+            : role === "reception"
+              ? "RECEPCIÓN"
+              : "MI ESPACIO"}
         </div>
         <nav aria-label="Navegación principal">
           {nav.map(([id, label, Icon]) => (
             <a
               key={id}
-              href={`/${role === "admin" ? "admin" : "estudiante"}/${id}`}
+              href={`/${rolePath(role)}/${id}`}
               onClick={(event) => {
                 event.preventDefault();
                 go(id);
@@ -535,28 +431,29 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button className="sidebar-profile" onClick={() => go("perfil")}>
-            <span className="avatar">
-              {member.name.slice(0, 2).toUpperCase()}
-            </span>
+          <button
+            className="sidebar-profile"
+            onClick={() => go(role === "reception" ? "inicio" : "perfil")}
+          >
+            <span className="avatar">{initials}</span>
             <span>
-              <strong>{role === "admin" ? "Recepción" : member.name}</strong>
+              <strong>{roleName}</strong>
               <small>
-                {role === "admin" ? "Administrador" : member.category}
+                {role === "student"
+                  ? (member.branch ?? member.category)
+                  : "Deportes UCN"}
               </small>
             </span>
             <ChevronRight size={16} />
           </button>
           <button
             className="logout"
-            onClick={async () => {
-              if (await update(() => api.logout(), "Sesión cerrada.")) {
-                setUser(null);
-                setState({ members: [], reservations: [], slots: [] });
-                setQr(null);
-                navigate("/");
-              }
-            }}
+            onClick={() =>
+              void update(async () => {
+                await api.logout();
+                window.location.assign("/");
+              }, "Sesión cerrada.")
+            }
           >
             <LogOut size={17} aria-hidden="true" />
             Salir
@@ -584,14 +481,18 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <span className="portal-label">
-              {role === "admin" ? "Administración" : "Portal estudiante"}
+              {role === "admin"
+                ? "Administración"
+                : role === "reception"
+                  ? "Recepción"
+                  : "Portal usuario"}
             </span>
             <button
               className="avatar small-avatar"
-              aria-label={`${member.name.slice(0, 2).toUpperCase()} · Ver perfil`}
-              onClick={() => go("perfil")}
+              aria-label={`${initials} · ${role === "reception" ? "Ver estado actual" : "Ver perfil"}`}
+              onClick={() => go(role === "reception" ? "inicio" : "perfil")}
             >
-              {member.name.slice(0, 2).toUpperCase()}
+              {initials}
             </button>
           </div>
         </header>
@@ -607,13 +508,23 @@ export default function App() {
                 {currentPage === "inicio"
                   ? role === "admin"
                     ? "Panel general"
-                    : `Hola, ${member.name.split(" ")[0]}.`
+                    : role === "reception"
+                      ? "Estado actual de la sala"
+                      : `Hola, ${member.name.split(" ")[0]}.`
                   : {
                       horarios: "Encuentra tu horario.",
                       reservas: role === "admin" ? "Reservas" : "Mis reservas",
                       qr: "Tu acceso a la sala.",
                       acceso: "Control de acceso",
                       usuarios: "Usuarios",
+                      grupos: "Sesiones por rama",
+                      archivos: "Importar y exportar",
+                      ramas: "Ramas deportivas",
+                      alertas: "Inasistencias",
+                      visitas:
+                        role === "admin"
+                          ? "Historial de visitas"
+                          : "Historial de mis visitas",
                       perfil: "Mi perfil",
                     }[currentPage]}
               </h1>
@@ -621,14 +532,20 @@ export default function App() {
                 {currentPage === "inicio"
                   ? role === "admin"
                     ? "Reservas y asistencia por período."
-                    : "Revisa tus reservas o elige un horario."
+                    : role === "reception"
+                      ? "Escaneo de QR e identificación para el acceso."
+                      : "Revisa tus reservas o elige un horario."
                   : {
                       horarios: "Elige un día y reserva un bloque disponible.",
                       reservas: "Consulta el estado de cada sesión.",
                       qr: "Presenta este código en recepción.",
                       acceso:
-                        "Registra la entrada o salida con el QR personal del día.",
+                        "Registra la entrada o salida con el QR de la reserva.",
                       usuarios: "Gestiona el acceso de la comunidad.",
+                      grupos:
+                        "Reserva cupos para deportistas de una misma rama.",
+                      archivos:
+                        "Archivos Excel de usuarios y registros operativos.",
                       perfil: "Información de tu cuenta.",
                     }[currentPage]}
               </p>
@@ -665,20 +582,35 @@ export default function App() {
 
           {currentPage === "inicio" && role === "admin" && (
             <AdminDashboard
-              state={state}
               onAccess={() => go("acceso")}
               onReservations={() => go("reservas")}
               onUsers={() => go("usuarios")}
             />
           )}
-
+          {currentPage === "inicio" && role === "reception" && (
+            <ReceptionDashboard onScan={() => go("acceso")} />
+          )}
+          <LoadStatus error={remote.error} loading={remote.loading} />
+          {currentPage === "grupos" && (
+            <GroupBooking admin={role === "admin"} />
+          )}
+          {currentPage === "archivos" && role === "admin" && <ExcelPanel />}
+          {currentPage === "ramas" && role === "admin" && (
+            <BranchesPanel onChange={refresh} />
+          )}
+          {currentPage === "alertas" && role === "admin" && <AlertsPanel />}
+          {currentPage === "visitas" && (
+            <HistoryPanel admin={role === "admin"} />
+          )}
           {currentPage === "horarios" && (
             <Schedule
               state={state}
-              onSelect={setSelected}
+              onSelect={(slot) => {
+                reserveKey.current = null;
+                setSelected(slot);
+              }}
               initialDate={scheduleDate}
-              onDate={setScheduleDate}
-              member={member}
+              memberId={member.id}
             />
           )}
           {currentPage === "reservas" && (
@@ -692,44 +624,56 @@ export default function App() {
               onReserve={() => go("horarios")}
             />
           )}
-          {currentPage === "qr" && <QrPanel qr={qr} onCopy={notify} />}
-          {currentPage === "acceso" && (
-            <AccessPanel
-              onSubmit={(code, action) =>
-                update(
-                  () => api.access(code, action),
-                  action === "entry"
-                    ? "Entrada registrada."
-                    : "Salida registrada.",
+          {currentPage === "qr" && (
+            <QrPanel
+              reservations={upcoming}
+              member={member}
+              onReserve={() => go("horarios")}
+              onCopy={notify}
+            />
+          )}
+          {currentPage === "acceso" && <AccessPanel />}
+          {currentPage === "usuarios" && role === "admin" && (
+            <Members
+              state={state}
+              onEdit={setEditingMember}
+              onToggle={(id, enabled) =>
+                void update(
+                  () => api.status(Number(id), enabled),
+                  "Estado actualizado.",
+                )
+              }
+              onInvitation={(id) =>
+                void update(
+                  () => api.invitation(Number(id)),
+                  "Invitación reenviada.",
                 )
               }
             />
           )}
-          {currentPage === "usuarios" && (
-            <Members
-              state={state}
-              onToggle={(id) => {
-                const m = state.members.find((v) => v.id === id);
-                if (m)
-                  void update(
-                    () => api.status(id, !m.enabled),
-                    "Estado actualizado.",
-                  );
-              }}
-            />
-          )}
-
           {currentPage === "perfil" && (
             <div className="profile-layout">
               <section className="card profile-card">
-                <span className="avatar profile-avatar">
-                  {member.name.slice(0, 2).toUpperCase()}
-                </span>
-                <h2>{role === "admin" ? "Recepción" : member.name}</h2>
+                <span className="avatar profile-avatar">{initials}</span>
+                <h2>{roleName}</h2>
                 <Badge tone="blue">
                   {role === "admin" ? "Administrador" : member.category}
                 </Badge>
                 <dl>
+                  {role === "student" && (
+                    <>
+                      <div>
+                        <dt>RUT</dt>
+                        <dd>{formatRut(member.rut) || "Pendiente"}</dd>
+                      </div>
+                      {member.branch && (
+                        <div>
+                          <dt>Rama deportiva</dt>
+                          <dd>{member.branch}</dd>
+                        </div>
+                      )}
+                    </>
+                  )}
                   <div>
                     <dt>Correo</dt>
                     <dd>{member.email}</dd>
@@ -773,7 +717,15 @@ export default function App() {
         </div>
       )}
       {selected && (
-        <Modal title="Confirmar reserva" onClose={() => setSelected(null)}>
+        <Modal
+          title="Confirmar reserva"
+          onClose={() => {
+            if (!busy) {
+              reserveKey.current = null;
+              setSelected(null);
+            }
+          }}
+        >
           <div className="confirmation-detail">
             <SlotDetails slot={selected} />
             <p className="meta">
@@ -783,17 +735,36 @@ export default function App() {
           </div>
           <p className="muted">La reserva quedará a nombre de {member.name}.</p>
           <div className="modal-actions">
-            <Button secondary onClick={() => setSelected(null)}>
+            <Button
+              secondary
+              onClick={() => {
+                reserveKey.current = null;
+                setSelected(null);
+              }}
+            >
               Volver
             </Button>
             <Button
+              disabled={busy}
               onClick={async () => {
+                const body = JSON.stringify({
+                  id: selected.id,
+                  date: selected.date,
+                });
+                if (reserveKey.current?.body !== body)
+                  reserveKey.current = { body, key: crypto.randomUUID() };
                 if (
                   await update(
-                    () => api.reserve(selected.id, selected.date),
+                    () =>
+                      api.reserve(
+                        Number(selected.id),
+                        selected.date,
+                        reserveKey.current!.key,
+                      ),
                     "Reserva confirmada. Tu QR ya está disponible.",
                   )
                 ) {
+                  reserveKey.current = null;
                   setSelected(null);
                   go("reservas");
                 }
@@ -820,10 +791,11 @@ export default function App() {
             </Button>
             <button
               className="button danger"
+              disabled={busy}
               onClick={async () => {
                 if (
                   await update(
-                    () => api.cancel(toCancel.id),
+                    () => api.cancel(Number(toCancel.id)),
                     "Reserva cancelada.",
                   )
                 )
@@ -835,18 +807,80 @@ export default function App() {
           </div>
         </Modal>
       )}
-      {showMember && (
+      {role === "admin" && (showMember || editingMember) && (
         <MemberForm
-          onClose={() => setShowMember(false)}
-          onSave={async (data) => {
-            if (await update(() => api.register(data), "Usuario agregado.")) {
+          initial={editingMember ?? undefined}
+          onClose={() => {
+            setShowMember(false);
+            setEditingMember(null);
+          }}
+          branches={state.branches}
+          onSave={async (data, password) => {
+            const firstName = data.firstName ?? "";
+            const lastName = data.lastName ?? "";
+            try {
+              const body = {
+                firstName,
+                lastName,
+                email: data.email,
+                role: data.role ?? "Usuario",
+                username: data.role === "Usuario" ? undefined : data.username,
+                category:
+                  data.role && data.role !== "Usuario"
+                    ? null
+                    : (data.category as import("./api").Category),
+                sportBranchId:
+                  (!data.role || data.role === "Usuario") &&
+                  data.category === "Deportista"
+                    ? (data.branchId ?? null)
+                    : null,
+              };
+              if (editingMember)
+                await api.updateUser(Number(editingMember.id), body);
+              else
+                await api.register({
+                  ...body,
+                  rut: data.rut,
+                  ...(password ? { password } : {}),
+                });
+              refresh();
               setShowMember(false);
+              setEditingMember(null);
               return "";
+            } catch (cause) {
+              return cause instanceof Error
+                ? cause.message
+                : "No se pudo guardar el usuario.";
             }
-            return "No se pudo agregar el usuario.";
           }}
         />
       )}
+      {role === "student" &&
+        !selected &&
+        !toCancel &&
+        state.alerts.some((a) => !a.acknowledgedAt) && (
+          <Modal
+            title="Tienes reservas sin asistencia"
+            onClose={() => void acknowledge()}
+          >
+            <p className="muted">No registramos tu ingreso a estas sesiones:</p>
+            <ul className="attendance-alerts">
+              {state.alerts
+                .filter((a) => !a.acknowledgedAt)
+                .map((a) => (
+                  <li key={a.id}>
+                    {shortDate(a.date)} · {a.startTime} a {a.endTime}
+                  </li>
+                ))}
+            </ul>
+            <p className="muted">
+              Si necesitas corregir una asistencia, contacta a administración.
+            </p>
+            <Button disabled={busy} onClick={() => void acknowledge()}>
+              Entendido
+            </Button>
+          </Modal>
+        )}
     </div>
   );
 }
@@ -855,19 +889,30 @@ function Schedule({
   state,
   onSelect,
   initialDate,
-  onDate,
-  member,
+  memberId,
 }: {
-  state: AppData;
+  state: ViewState;
   onSelect: (slot: Slot) => void;
   initialDate: string;
-  onDate: (date: string) => void;
-  member: Member;
+  memberId: string;
 }) {
   const days = getDays();
-  const date = initialDate;
+  const [date, setDate] = useState(initialDate);
+  const schedules = useApiData(() => api.schedules(date), [date]);
+  const profile = state.members.find((value) => value.id === memberId);
   return (
     <>
+      <div className="schedule-profile">
+        <Badge tone="blue">
+          {profile?.category}
+          {profile?.branch ? ` · ${profile.branch}` : ""}
+        </Badge>
+        {profile?.category === "Deportista" ? (
+          <span>Puedes reservar más de un bloque por día.</span>
+        ) : profile?.category === "Estudiante" ? (
+          <span>Máximo una reserva por día.</span>
+        ) : null}
+      </div>
       <div className="schedule-toolbar">
         <div className="schedule-location">
           <MapPin size={18} />
@@ -881,7 +926,7 @@ function Schedule({
             key={day}
             aria-pressed={date === day}
             className={`date-option ${date === day ? "selected" : ""}`}
-            onClick={() => onDate(day)}
+            onClick={() => setDate(day)}
           >
             <span>{shortDate(day, { weekday: "short" }).replace(".", "")}</span>
             <strong>{shortDate(day, { day: "2-digit" })}</strong>
@@ -897,88 +942,86 @@ function Schedule({
         </span>
       </div>
       <div className="slots-grid">
-        {state.slots
-          .filter((s) => s.date === date)
-          .map((slot) => {
-            const available = remaining(slot);
-            const started = hasStarted(slot);
-            const mine = state.reservations.some(
-              (r) =>
-                r.memberId === member.id &&
-                r.slot.id === slot.id &&
-                r.slot.date === slot.date &&
-                r.status !== "Cancelado",
-            );
-            return (
-              <article
-                key={slot.id}
-                className={`card slot-card ${!available ? "full" : ""}`}
+        <LoadStatus error={schedules.error} loading={schedules.loading} />
+        {(schedules.data ?? []).map(slotFrom).map((slot) => {
+          const available = remaining(slot);
+          const mine = state.reservations.some(
+            (r) =>
+              r.memberId === memberId &&
+              r.slot.id === slot.id &&
+              r.status !== "Cancelado",
+          );
+          const ended = hasStarted(slot);
+          const unavailable = ended ? "Este bloque ya comenzó." : "";
+          return (
+            <article
+              key={slot.id}
+              className={`card slot-card ${!available ? "full" : ""}`}
+            >
+              <div className="slot-top">
+                <span className="slot-icon">
+                  <Dumbbell size={22} />
+                </span>
+                <Badge tone={mine ? "blue" : available ? "green" : "neutral"}>
+                  {mine ? "Tu reserva" : available ? "Disponible" : "Completo"}
+                </Badge>
+              </div>
+              <h3>
+                {slot.start}
+                <span>—</span>
+                {slot.end}
+              </h3>
+              <p className="meta">
+                <Clock3 size={15} />
+                90 min
+                <span className="separator" />
+                <MapPin size={15} />
+                Sala de pesas
+              </p>
+              <div className="capacity-info">
+                <span>
+                  {available
+                    ? `${available} cupos disponibles`
+                    : "Sin cupos disponibles"}
+                </span>
+                <span>
+                  {slot.capacity - available}/{slot.capacity} ·{" "}
+                  {slot.groupSeats} cupos de grupo
+                </span>
+              </div>
+              <div className="capacity-bar">
+                <span
+                  style={{
+                    width: `${((slot.capacity - available) / slot.capacity) * 100}%`,
+                  }}
+                />
+              </div>
+              <Button
+                secondary={available > 0}
+                disabled={!available || mine || !!unavailable}
+                onClick={() => onSelect(slot)}
               >
-                <div className="slot-top">
-                  <span className="slot-icon">
-                    <Dumbbell size={22} />
-                  </span>
-                  <Badge tone={mine ? "blue" : available ? "green" : "neutral"}>
-                    {mine
-                      ? "Tu reserva"
-                      : available
-                        ? "Disponible"
-                        : "Completo"}
-                  </Badge>
-                </div>
-                <h3>
-                  {slot.start}
-                  <span>—</span>
-                  {slot.end}
-                </h3>
-                <p className="meta">
-                  <Clock3 size={15} />
-                  {durationMinutes(slot)} min
-                  <span className="separator" />
-                  <MapPin size={15} />
-                  {slot.zone}
-                </p>
-                <div className="capacity-info">
-                  <span>
-                    {available
-                      ? `${available} cupos disponibles`
-                      : "Sin cupos disponibles"}
-                  </span>
-                  <span>
-                    {slot.capacity - available}/{slot.capacity}
-                  </span>
-                </div>
-                <div className="capacity-bar">
-                  <span
-                    style={{
-                      width: `${slot.capacity > 0 ? ((slot.capacity - available) / slot.capacity) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
-                <Button
-                  secondary={available > 0}
-                  disabled={!available || mine || started || !member.enabled}
-                  onClick={() => onSelect(slot)}
-                >
-                  {mine ? (
-                    <>
-                      <Check size={17} />
-                      Ya reservado
-                    </>
-                  ) : started ? (
-                    "Bloque iniciado"
-                  ) : available ? (
-                    <>
-                      Reservar
-                      <ArrowRight size={17} />
-                    </>
-                  ) : (
-                    "Bloque completo"
-                  )}
-                </Button>
-              </article>
-            );
-          })}
+                {mine ? (
+                  <>
+                    <Check size={17} />
+                    Ya reservado
+                  </>
+                ) : ended ? (
+                  "Sesión finalizada"
+                ) : available && unavailable ? (
+                  "No disponible"
+                ) : available ? (
+                  <>
+                    Reservar
+                    <ArrowRight size={17} />
+                  </>
+                ) : (
+                  "Bloque completo"
+                )}
+              </Button>
+            </article>
+          );
+        })}
       </div>
     </>
   );
@@ -986,12 +1029,11 @@ function Schedule({
 
 function ReservationList({
   reservations,
-  state,
   admin,
   onCancel,
 }: {
   reservations: Reservation[];
-  state: AppData;
+  state: ViewState;
   admin?: boolean;
   onCancel: (r: Reservation) => void;
 }) {
@@ -1014,18 +1056,66 @@ function ReservationList({
             </span>
           </div>
           <div className="reservation-info">
-            <h3>
-              {admin
-                ? state.members.find((m) => m.id === r.memberId)?.name
-                : "Sala de pesas"}
-            </h3>
+            <h3>{admin ? r.userName : "Sala de pesas"}</h3>
             <p>
               {shortDate(r.slot.date, { weekday: "long" })}
               <span>·</span>
               {r.slot.start} a {r.slot.end}
             </p>
+            {r.entry && (
+              <small>
+                Entrada{" "}
+                {new Date(r.entry).toLocaleTimeString("es-CL", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                {r.exit &&
+                  ` · Salida ${new Date(r.exit).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}`}
+              </small>
+            )}
+            {r.createdAt && (
+              <small>
+                Reserva realizada:{" "}
+                {new Date(r.createdAt).toLocaleString("es-CL", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}
+              </small>
+            )}
+            {r.branch && <small>{r.branch}</small>}
+            {!!r.visits?.length && (
+              <details className="visit-details">
+                <summary>
+                  {r.visits.length}{" "}
+                  {r.visits.length === 1
+                    ? "visita registrada"
+                    : "visitas registradas"}
+                </summary>
+                <ol>
+                  {r.visits.map((visit) => (
+                    <li key={visit.id}>
+                      Entrada{" "}
+                      {new Date(visit.entryAt).toLocaleTimeString("es-CL", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      ·{" "}
+                      {visit.exitAt
+                        ? `Salida ${new Date(visit.exitAt).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}`
+                        : "Dentro de la sala"}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
           </div>
           <Badge tone={statusClass[r.status]}>{r.status}</Badge>
+          {!admin && ["Reservado", "Asistió"].includes(r.status) && (
+            <details className="card">
+              <summary>Ver código QR</summary>
+              <BlockQr id={Number(r.id)} />
+            </details>
+          )}
           {r.status === "Reservado" && (
             <button
               className="text-button cancel-link"
@@ -1048,18 +1138,50 @@ function Reservations({
   onReserve,
 }: {
   reservations: Reservation[];
-  state: AppData;
+  state: ViewState;
   admin: boolean;
   onCancel: (r: Reservation) => void;
   onReserve: () => void;
 }) {
   const [filter, setFilter] = useState("Todas");
-  const filters = ["Todas", "Reservado", "Asistió", "Cancelado"];
-  const visible = [...reservations]
+  const [branch, setBranch] = useState("");
+  const branches = [
+    ...new Set(
+      state.members.flatMap((member) => (member.branch ? [member.branch] : [])),
+    ),
+  ].sort();
+  const scoped = reservations.filter(
+    (reservation) =>
+      !branch ||
+      (reservation.branch ??
+        state.members.find((member) => member.id === reservation.memberId)
+          ?.branch) === branch,
+  );
+  const filters = [
+    "Todas",
+    "Reservado",
+    "Asistió",
+    "Cancelado",
+    "Inasistencia",
+  ];
+  const visible = [...scoped]
     .reverse()
     .filter((r) => filter === "Todas" || r.status === filter);
   return (
     <>
+      {admin && (
+        <SelectField
+          label="Rama deportiva"
+          fieldClassName="field branch-filter"
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+        >
+          <option value="">Todas las ramas</option>
+          {branches.map((value) => (
+            <option key={value}>{value}</option>
+          ))}
+        </SelectField>
+      )}
       <div className="filter-tabs" aria-label="Estado de reservas">
         {filters.map((f) => (
           <button
@@ -1071,15 +1193,12 @@ function Reservations({
             {f === "Reservado"
               ? "Pendientes"
               : f === "Asistió"
-                ? "Asistencias"
+                ? "Asistidas"
                 : f === "Cancelado"
-                  ? "Cancelados"
+                  ? "Canceladas"
                   : f}
             <span>
-              {
-                reservations.filter((r) => f === "Todas" || r.status === f)
-                  .length
-              }
+              {scoped.filter((r) => f === "Todas" || r.status === f).length}
             </span>
           </button>
         ))}
@@ -1115,195 +1234,162 @@ function Reservations({
 }
 
 function QrPanel({
-  qr,
-  onCopy,
+  reservations,
+  member,
+  onReserve,
 }: {
-  qr: QrResponse | null;
+  reservations: Reservation[];
+  member: Member;
+  onReserve: () => void;
   onCopy: (text: string, error?: boolean) => void;
 }) {
-  if (!qr)
+  const [selectedId, setSelectedId] = useState("");
+  const groups = useApiData(
+    () =>
+      member.category === "Deportista" ? api.myGroups() : Promise.resolve([]),
+    [member.id, member.category],
+  );
+  const choices = [
+    ...reservations.map((r) => ({
+      key: `r:${r.id}`,
+      id: Number(r.id),
+      group: false,
+      label: `${shortDate(r.slot.date)} · ${r.slot.start}`,
+    })),
+    ...(groups.data ?? [])
+      .filter((g) => g.status === "Activa")
+      .map((g) => ({
+        key: `g:${g.id}`,
+        id: g.id,
+        group: true,
+        label: `${g.sportBranch.name} · ${shortDate(g.date)} · ${g.startTime}`,
+      })),
+  ];
+  const selected = choices.find((r) => r.key === selectedId) ?? choices[0];
+  if (groups.loading || groups.error)
+    return <LoadStatus error={groups.error} loading={groups.loading} />;
+  if (!selected)
     return (
       <section className="card">
-        <p role="status">Código no disponible.</p>
+        <Empty
+          title="Primero, una reserva"
+          action={<Button onClick={onReserve}>Reservar un horario</Button>}
+        >
+          Tu código estará disponible al confirmar un bloque.
+        </Empty>
       </section>
     );
   return (
-    <section className="card qr-card">
-      <Brand />
-      <h2>{qr.name}</h2>
-      <p>QR personal del día {shortDate(qr.date)}</p>
-      <div className="qr-frame">
-        <QRCodeSVG
-          value={qr.token}
-          size={224}
-          marginSize={3}
-          title="Código QR personal del día"
-        />
-      </div>
-      <p>
-        Válido desde {new Date(qr.validFrom).toLocaleString("es-CL")} hasta{" "}
-        {new Date(qr.validUntil).toLocaleString("es-CL")}
-      </p>
-      <button
-        className="text-button"
-        onClick={async () => {
+    <div className="qr-layout">
+      <section className="card qr-card">
+        <Brand />
+        <SelectField
+          label="Reserva"
+          fieldClassName="field"
+          value={selected.key}
+          onChange={(e) => setSelectedId(e.target.value)}
+        >
+          {choices.map((r) => (
+            <option key={r.key} value={r.key}>
+              {r.label}
+            </option>
+          ))}
+        </SelectField>
+        <BlockQr id={selected.id} group={selected.group} />
+      </section>
+      <aside className="qr-instructions">
+        <h2>Cómo usar tu QR</h2>
+        <p>Preséntalo junto a tu Carnet, TNE o credencial universitaria.</p>
+        <p>
+          Para salir, recepción te selecciona en la lista de personas dentro.
+        </p>
+      </aside>
+    </div>
+  );
+}
+function ResetUserPassword({ id }: { id: number }) {
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <details>
+      <summary>Restablecer contraseña</summary>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
           try {
-            await navigator.clipboard.writeText(qr.token);
-            onCopy("Código copiado.");
-          } catch {
-            onCopy("No pudimos copiar el código.", true);
+            setMessage((await api.passwordReset(id, password)).message);
+            setPassword("");
+          } catch (cause) {
+            setMessage(
+              cause instanceof Error
+                ? cause.message
+                : "No se pudo restablecer.",
+            );
+          } finally {
+            setBusy(false);
           }
         }}
       >
-        Copiar código
-      </button>
-      <code className="ticket-code">{qr.token}</code>
-    </section>
-  );
-}
-
-function AccessPanel({
-  onSubmit,
-}: {
-  onSubmit: (code: string, action: "entry" | "exit") => Promise<boolean>;
-}) {
-  const [action, setAction] = useState<"entry" | "exit">("entry");
-  const [code, setCode] = useState("");
-  const [camera, setCamera] = useState(false);
-  const [success, setSuccess] = useState(false);
-  async function submit(value = code) {
-    setSuccess(await onSubmit(value, action));
-  }
-  return (
-    <div className="access-layout">
-      <section className="card scanner-card">
-        <div className="access-tabs">
-          <button
-            aria-pressed={action === "entry"}
-            className={action === "entry" ? "selected" : ""}
-            onClick={() => {
-              setAction("entry");
-              setSuccess(false);
-            }}
-          >
-            <ArrowDownLeft size={19} />
-            Entrada
-          </button>
-          <button
-            aria-pressed={action === "exit"}
-            className={action === "exit" ? "selected" : ""}
-            onClick={() => {
-              setAction("exit");
-              setSuccess(false);
-            }}
-          >
-            <ArrowUpRight size={19} />
-            Salida
-          </button>
-        </div>
-        <div className={`scan-area ${success ? "scan-success" : ""}`}>
-          {camera ? (
-            <Suspense fallback={<p>Abriendo cámara…</p>}>
-              <Camera
-                onRead={(value) => {
-                  setCamera(false);
-                  setCode(value);
-                  submit(value);
-                }}
-              />
-            </Suspense>
-          ) : (
-            <>
-              <span className="scan-corner top-left" />
-              <span className="scan-corner top-right" />
-              <span className="scan-corner bottom-left" />
-              <span className="scan-corner bottom-right" />
-              {success ? (
-                <CheckCircle2 size={64} strokeWidth={1.3} />
-              ) : (
-                <ScanLine size={64} strokeWidth={1.3} />
-              )}
-              <h3>
-                {success
-                  ? `${action === "entry" ? "Entrada" : "Salida"} registrada`
-                  : "Acerca el código QR"}
-              </h3>
-              <p>
-                {success
-                  ? "La API confirmó el registro."
-                  : "Activa la cámara para escanear."}
-              </p>
-            </>
-          )}
-        </div>
-        <Button
-          secondary
-          onClick={() => {
-            setSuccess(false);
-            setCamera(!camera);
-          }}
-        >
-          {camera ? "Cerrar cámara" : "Activar cámara"}
-        </Button>
-        <div className="or-divider">
-          <span>o ingresa el código</span>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          <label className="field">
-            Código personal del día
-            <input
-              value={code}
-              onChange={(e) => {
-                setCode(e.target.value);
-                setSuccess(false);
-              }}
-              placeholder="UCN:…"
-              required
-            />
-          </label>
-          <button className="button" type="submit">
-            Registrar {action === "entry" ? "entrada" : "salida"}
-            <ArrowRight size={17} />
-          </button>
-        </form>
-      </section>
-      <aside className="card">
-        <h2>Asistencias</h2>
-        <p>El historial de entradas y salidas no está disponible en la API.</p>
-      </aside>
-    </div>
+        <label className="field">
+          Contraseña temporal
+          <input
+            required
+            type="password"
+            minLength={8}
+            maxLength={128}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <button className="button" disabled={busy}>
+          Restablecer
+        </button>
+        <p role="status">{message}</p>
+      </form>
+    </details>
   );
 }
 
 function Members({
   state,
   onToggle,
+  onEdit,
+  onInvitation,
 }: {
-  state: AppData;
-  onToggle: (id: number) => void;
+  state: ViewState;
+  onToggle: (id: string, enabled: boolean) => void;
+  onEdit: (member: Member) => void;
+  onInvitation: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Todos");
-  const members = state.members.filter(
-    (m) =>
-      `${m.name} ${m.email} ${m.category}`
-        .toLowerCase()
-        .includes(search.toLowerCase()) &&
-      (filter === "Todos" || m.enabled === (filter === "Habilitados")),
+  const [branch, setBranch] = useState("");
+  const [category, setCategory] = useState("");
+  const branches = state.branches.map((branch) => branch.name).sort();
+  const remoteUsers = useApiData(
+    () =>
+      api.users({
+        search,
+        category,
+        branchId: state.branches.find((b) => b.name === branch)?.id,
+        enabled: filter === "Todos" ? undefined : filter === "Habilitados",
+      }),
+    [search, category, branch, filter, state],
   );
+  const members = (remoteUsers.data ?? [])
+    .map(memberFrom)
+    .sort((a, b) => a.name.localeCompare(b.name));
   return (
     <section className="card members-card">
+      <LoadStatus error={remoteUsers.error} loading={remoteUsers.loading} />
       <div className="members-toolbar">
         <label className="search">
           <Search size={18} aria-hidden="true" />
           <input
             aria-label="Buscar usuarios"
-            placeholder="Buscar por nombre o correo"
+            placeholder="Nombre, RUT o correo"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1317,6 +1403,26 @@ function Members({
             <option key={f}>{f}</option>
           ))}
         </select>
+        <select
+          aria-label="Filtrar por categoría"
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+        >
+          <option value="">Todas las categorías</option>
+          {CATEGORIES.map((value) => (
+            <option key={value}>{value}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Filtrar por rama deportiva"
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+        >
+          <option value="">Todas las ramas</option>
+          {branches.map((value) => (
+            <option key={value}>{value}</option>
+          ))}
+        </select>
       </div>
       <div className="table-scroll">
         <table>
@@ -1324,7 +1430,9 @@ function Members({
             <tr>
               <th>Usuario</th>
               <th>Categoría</th>
+              <th>Rama</th>
               <th>Estado</th>
+              <th>Acciones</th>
               <th>Acceso</th>
             </tr>
           </thead>
@@ -1343,14 +1451,39 @@ function Members({
                     <span>
                       <strong>{m.name}</strong>
                       <small>{m.email}</small>
+                      <small>{formatRut(m.rut) || "RUT pendiente"}</small>
                     </span>
                   </div>
                 </td>
                 <td>{m.category}</td>
+                <td>{m.branch ?? "—"}</td>
                 <td>
                   <Badge tone={m.enabled ? "green" : "neutral"}>
                     {m.enabled ? "Habilitado" : "Deshabilitado"}
                   </Badge>
+                  {m.accountStatus === "Pendiente de activación" && (
+                    <small className="account-pending">
+                      Activación pendiente
+                    </small>
+                  )}
+                </td>
+                <td>
+                  <button
+                    className="text-button"
+                    aria-label={`Editar ${m.name}`}
+                    onClick={() => onEdit(m)}
+                  >
+                    Editar
+                  </button>
+                  {m.accountStatus === "Pendiente" && (
+                    <button
+                      className="text-button"
+                      onClick={() => onInvitation(m.id)}
+                    >
+                      Reenviar invitación
+                    </button>
+                  )}
+                  <ResetUserPassword id={Number(m.id)} />
                 </td>
                 <td>
                   <button
@@ -1358,7 +1491,7 @@ function Members({
                     role="switch"
                     aria-checked={m.enabled}
                     aria-label={`Habilitar acceso de ${m.name}`}
-                    onClick={() => onToggle(m.id)}
+                    onClick={() => onToggle(m.id, !m.enabled)}
                   >
                     <span />
                   </button>
@@ -1383,61 +1516,141 @@ function Members({
 function MemberForm({
   onSave,
   onClose,
+  initial,
+  branches,
 }: {
-  onSave: (data: RegisterRequest) => Promise<string>;
+  onSave: (
+    data: Omit<Member, "id" | "enabled">,
+    password?: string,
+  ) => Promise<string>;
   onClose: () => void;
+  initial?: Member;
+  branches: import("./api").BranchResponse[];
 }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [category, setCategory] = useState("Estudiante");
-  const [rut, setRut] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+  const [firstName, setFirstName] = useState(initial?.firstName ?? "");
+  const [lastName, setLastName] = useState(initial?.lastName ?? "");
+  const [rut, setRut] = useState(initial?.rut ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
+  const [category, setCategory] = useState(initial?.category ?? "Deportista");
+  const [branch, setBranch] = useState(String(initial?.branchId ?? ""));
+  const [password, setPassword] = useState("");
+  const [memberRole, setMemberRole] = useState<import("./api").Role>(
+    initial?.role ?? "Usuario",
+  );
+  const [username, setUsername] = useState(initial?.username ?? "");
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim()) {
-      setError("Ingresa un nombre.");
+    if (!firstName.trim() || !lastName.trim()) {
+      setError("Ingresa nombre y apellido.");
       return;
     }
+    if (!isValidRut(rut)) {
+      setError("Ingresa un RUT válido con su dígito verificador.");
+      return;
+    }
+    if (
+      memberRole === "Usuario" &&
+      category === "Deportista" &&
+      !branch.trim()
+    ) {
+      setError("Indica la rama deportiva.");
+      return;
+    }
+    setSaving(true);
     setError(
-      await onSave({
-        name: name.trim(),
-        email,
-        rut,
-        password: newPassword,
-        userType: category as RegisterRequest["userType"],
-      }),
+      await onSave(
+        {
+          name: `${firstName.trim()} ${lastName.trim()}`,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          role: memberRole,
+          username,
+          rut: formatRut(rut),
+          email,
+          category,
+          branchId:
+            memberRole === "Usuario" && category === "Deportista"
+              ? Number(branch)
+              : undefined,
+        },
+        password,
+      ),
     );
+    setSaving(false);
   }
   return (
-    <Modal title="Agregar usuario" onClose={onClose}>
+    <Modal
+      title={initial ? "Editar usuario" : "Agregar usuario"}
+      onClose={onClose}
+    >
       <form onSubmit={submit} className="member-form">
-        <label className="field">
-          RUT
-          <input
-            required
-            value={rut}
-            onChange={(e) => setRut(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          Contraseña inicial
-          <input
-            type="password"
-            required
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
+        <SelectField
+          label="Rol"
+          fieldClassName="field"
+          value={memberRole}
+          onChange={(e) =>
+            setMemberRole(e.target.value as import("./api").Role)
+          }
+        >
+          {["Usuario", "Admin", "Recepcionista"].map((r) => (
+            <option key={r}>{r}</option>
+          ))}
+        </SelectField>
+        {memberRole !== "Usuario" && (
+          <label className="field">
+            Nombre de usuario
+            <input
+              required
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </label>
+        )}
+        {!initial && (
+          <label className="field">
+            Contraseña temporal (opcional)
+            <input
+              type="password"
+              minLength={8}
+              maxLength={128}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </label>
+        )}
         <label className="field">
           Nombre
           <input
             autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
             required
             maxLength={100}
+            autoComplete="off"
+          />
+        </label>
+        <label className="field">
+          Apellido
+          <input
+            required
+            maxLength={100}
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            autoComplete="off"
+          />
+        </label>
+        <label className="field">
+          RUT
+          <input
+            readOnly={!!initial}
+            value={rut}
+            onChange={(event) => setRut(event.target.value)}
+            required
+            maxLength={12}
+            placeholder="12.345.678-5"
             autoComplete="off"
           />
         </label>
@@ -1453,17 +1666,34 @@ function MemberForm({
             maxLength={200}
           />
         </label>
-        <label className="field">
-          Categoría
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
+        <SelectField
+          label="Categoría"
+          fieldClassName="field"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          {CATEGORIES.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </SelectField>
+        {memberRole === "Usuario" && category === "Deportista" && (
+          <SelectField
+            label="Rama deportiva"
+            fieldClassName="field"
+            required
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
           >
-            {["Estudiante", "Administrador"].map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </label>
+            <option value="">Selecciona una rama</option>
+            {branches
+              .filter((b) => b.enabled || b.id === initial?.branchId)
+              .map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+          </SelectField>
+        )}
         {error && (
           <p className="form-error" role="alert">
             {error}
@@ -1473,8 +1703,8 @@ function MemberForm({
           <Button secondary onClick={onClose}>
             Cancelar
           </Button>
-          <button type="submit" className="button">
-            Agregar usuario
+          <button type="submit" className="button" disabled={saving}>
+            {initial ? "Guardar cambios" : "Agregar usuario"}
           </button>
         </div>
       </form>

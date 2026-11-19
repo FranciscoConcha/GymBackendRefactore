@@ -14,6 +14,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.FirstName).HasMaxLength(80).IsRequired();
         builder.Property(x => x.LastName).HasMaxLength(80).IsRequired();
         builder.Ignore(x => x.FullName);
+        builder.Property(x => x.AccountStatus).HasConversion<string>().HasMaxLength(20).HasDefaultValue(GymBackend.Domain.AccountStatus.Activa);
         builder.Property(x => x.Role).HasMaxLength(20).IsRequired();
         builder.Property(x => x.Category).HasMaxLength(20);
         builder.HasOne(x => x.SportBranch).WithMany().HasForeignKey(x => x.SportBranchId).OnDelete(DeleteBehavior.Restrict);

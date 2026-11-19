@@ -59,6 +59,7 @@ public static class DevelopmentSeeder
                 Username = username.Trim().ToLowerInvariant(),
                 PasswordHash = passwordHasher.Hash(adminPassword),
                 Role = Roles.Admin,
+                MustChangePassword = false,
                 Enabled = true,
             });
             await db.SaveChangesAsync(ct);

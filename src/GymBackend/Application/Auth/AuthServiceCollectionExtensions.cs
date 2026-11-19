@@ -9,6 +9,8 @@ public static class AuthServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddScoped<GymBackend.Application.Audit.IAuditLog, GymBackend.Application.Audit.AuditLog>();
         services.AddScoped<GymBackend.Application.Branches.BranchService>();
+        services.AddScoped<AccountService>();
+        services.AddHostedService<GymBackend.Application.Email.EmailOutboxDispatcher>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<ITokenService, JwtTokenService>();

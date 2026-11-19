@@ -19,10 +19,13 @@ public sealed class ScheduleService(AppDbContext context, IGymClock clock) : ISc
         var schedules = await context.ScheduleSlots.Where(slot => slot.Enabled && slot.Day == requestedDate.DayOfWeek)
             .OrderBy(slot => slot.StartTime).ToListAsync(ct);
         var counts = await context.Reservations
-            .Where(r => r.Status == ReservationStatus.Reserved && r.Date == requestedDate)
+            .Where(r => (r.Status == ReservationStatus.Reserved || r.Status == ReservationStatus.Attended) && r.Date == requestedDate)
             .GroupBy(r => r.ScheduleSlotId)
             .Select(group => new { Id = group.Key, Count = group.Count() }).ToDictionaryAsync(x => x.Id, x => x.Count, ct);
+        var groupSeats = await context.GroupBookings.Where(g => g.Date == requestedDate && g.Status == "Activa")
+            .GroupBy(g => g.ScheduleSlotId).Select(g => new { Id = g.Key, Seats = g.Sum(x => x.Seats) })
+            .ToDictionaryAsync(g => g.Id, g => g.Seats, ct);
         return ServiceResult<ScheduleResponse[]>.Success(schedules
-            .Select(slot => ScheduleResponse.From(slot, counts.GetValueOrDefault(slot.Id), requestedDate)).ToArray());
+            .Select(slot => ScheduleResponse.From(slot, counts.GetValueOrDefault(slot.Id), requestedDate, groupSeats.GetValueOrDefault(slot.Id))).ToArray());
     }
 }

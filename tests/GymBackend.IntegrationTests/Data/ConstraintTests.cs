@@ -116,19 +116,37 @@ public sealed class ConstraintTests(GymApiFactory factory)
     }
 
     [Fact]
-    public async Task Attendance_DuplicateUserDate_ThrowsDbUpdateException()
+    public async Task Visit_DuplicateOpenVisit_ThrowsDbUpdateException()
     {
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         var date = GymTime.Tomorrow();
+        var slot = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(8, 0), new TimeOnly(9, 0));
+        var reservation = await factory.InsertReservationAsync(user.UserId, slot.Id, date);
         await factory.WithDbAsync(async db =>
         {
-            db.Attendances.Add(new GymBackend.Models.Attendance { UserId = user.UserId, Date = date });
+            db.Visits.Add(new Visit
+            {
+                UserId = user.UserId,
+                Date = date,
+                ReservationId = reservation.Id,
+                EntryOperatorId = user.UserId,
+                EntryAt = DateTime.UtcNow,
+                DocumentType = "TNE"
+            });
             await db.SaveChangesAsync(Ct);
         });
         await Assert.ThrowsAsync<DbUpdateException>(() => factory.WithDbAsync(async db =>
         {
-            db.Attendances.Add(new GymBackend.Models.Attendance { UserId = user.UserId, Date = date });
+            db.Visits.Add(new Visit
+            {
+                UserId = user.UserId,
+                Date = date,
+                ReservationId = reservation.Id,
+                EntryOperatorId = user.UserId,
+                EntryAt = DateTime.UtcNow,
+                DocumentType = "TNE"
+            });
             await db.SaveChangesAsync(Ct);
         }));
     }

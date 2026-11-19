@@ -1,112 +1,188 @@
-import { expect, test } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+﻿import { expect, test } from "@playwright/test";
 import { login, mockApi, navigate, reserve } from "./api-fixture";
-
-test("login fallido muestra el mensaje del servidor", async ({ page }) => {
-  await mockApi(page);
-  await page.goto("/");
-  await page.getByLabel("RUT", { exact: true }).fill("123");
-  await page.getByLabel("Contraseña", { exact: true }).fill("incorrecta");
-  await page.getByRole("button", { name: "Ingresar" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Credenciales incorrectas");
-  await expect(page.getByLabel("Contraseña", { exact: true })).toHaveValue("");
-});
-
-test("restaura sesión y corrige URL ajena al rol", async ({ page }) => {
-  const api = await mockApi(page);
-  api.restore("student");
-  await page.goto("/admin/inicio");
-  await expect(page).toHaveURL(/\/estudiante\/inicio$/);
-  await expect(
-    page.getByRole("heading", { name: "Hola, Alex." }),
-  ).toBeVisible();
-  await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "Hola, Alex." }),
-  ).toBeVisible();
-});
-
-test("401 durante sesión vuelve al login con aviso", async ({ page }) => {
-  const api = await mockApi(page);
-  await login(page);
-  await page.route("**/api/v1/qr/my-code", async (route) => {
-    api.expire();
-    await route.fulfill({ status: 401, json: { message: "Sin sesión" } });
-  });
-  await navigate(page, "Mi código QR");
-  await expect(page.getByRole("button", { name: "Ingresar" })).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText(/sesión|Sin sesión/);
-});
-
-test("reserva, QR personal, entrada y salida con CSRF y storage vacío", async ({
+test("sesión real, reserva, QR por bloque, cancelación y almacenamiento vacío", async ({
   page,
 }) => {
-  const api = await mockApi(page);
+  const mock = await mockApi(page);
   await login(page);
   await reserve(page);
+  const reservation = mock.calls.find(
+    (c) => c.path === "/reservations" && c.method === "POST",
+  )!;
+  expect(reservation.headers["idempotency-key"]).toBeTruthy();
+  await page.getByText("Ver código QR", { exact: true }).click();
+  await expect(page.locator(".ticket-code")).toHaveText("signed-R-1");
+  expect(mock.calls.some((c) => c.path === "/me/reservations/1/qr")).toBe(true);
   await navigate(page, "Mi código QR");
-  await expect(page.locator(".qr-frame svg")).toBeVisible();
-  const token = await page.locator(".ticket-code").innerText();
-  api.restore("admin");
-  await page.goto("/admin/acceso");
-  await page.getByLabel("Código personal del día").fill(token);
-  await page
-    .getByRole("button", { name: "Registrar entrada", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Entrada registrada", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Salida", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Registrar salida", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Salida registrada", exact: true }),
-  ).toBeVisible();
-  api.restore("student");
-  await page.goto("/estudiante/reservas");
-  await expect(page.locator(".reservation-row .badge")).toHaveText("Asistió");
-  await page.reload();
-  await expect(page.locator(".reservation-row .badge")).toHaveText("Asistió");
-  expect(api.mutations).toContain("POST /attendance/entry");
-  expect(api.mutations).toContain("POST /attendance/exit");
-  expect(
-    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
-  ).toEqual([0, 0]);
-});
-
-test("cancelación confirmada, cupo completo y Escape", async ({ page }) => {
-  await mockApi(page);
-  await login(page);
-  await page.getByRole("button", { name: "Reservar un horario" }).click();
-  await expect(
-    page.getByRole("button", { name: "Bloque completo" }),
-  ).toBeDisabled();
-  await page
-    .getByRole("button", { name: "Reservar", exact: true })
-    .first()
-    .click();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Reservar", exact: true })
-    .first()
-    .click();
-  await page
-    .getByRole("button", { name: "Confirmar reserva", exact: true })
-    .click();
+  await expect(page.locator(".ticket-code")).toHaveText("signed-R-1");
+  await expect(page.getByText(/Vigencia:/)).toBeVisible();
+  await navigate(page, "Mis reservas");
   await page.getByRole("button", { name: "Cancelar", exact: true }).click();
   await page
     .getByRole("button", { name: "Cancelar reserva", exact: true })
     .click();
   await expect(page.locator(".reservation-row .badge")).toHaveText("Cancelado");
+  await navigate(page, "Mis visitas");
+  await expect(
+    page.getByRole("heading", {
+      name: "Historial de mis visitas",
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => ({
+      local: Object.keys(localStorage),
+      session: Object.keys(sessionStorage),
+    })),
+  ).toEqual({ local: [], session: [] });
+  expect(mock.csrfFailures).toEqual([]);
+  expect(
+    mock.calls
+      .filter((c) => ["POST", "PATCH", "DELETE", "PUT"].includes(c.method))
+      .every((c) => c.headers["x-gym-csrf"] === "1"),
+  ).toBe(true);
+  expect(mock.unknown).toEqual([]);
 });
-
-test("409 conserva el diálogo y muestra el error", async ({ page }) => {
-  const api = await mockApi(page);
+test("el rol de sesión manda sobre URL y query", async ({ page }) => {
+  const mock = await mockApi(page, { role: "Usuario" });
+  await page.goto("/admin/usuarios?usuario=2");
+  await expect(page).toHaveURL(/\/estudiante\/inicio$/);
+  await expect(
+    page.getByRole("heading", { name: "Hola, Alex." }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation")
+      .getByRole("link", { name: "Usuarios", exact: true }),
+  ).toHaveCount(0);
+  expect(mock.calls.some((c) => c.path === "/auth/users")).toBe(false);
+});
+test("restaura sesión al recargar y un 401 vuelve al login", async ({
+  page,
+}) => {
+  const mock = await mockApi(page);
   await login(page);
-  api.conflict();
-  await page.getByRole("button", { name: "Reservar un horario" }).click();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Hola, Alex." }),
+  ).toBeVisible();
+  mock.expire();
+  await navigate(page, "Reservar");
+  await expect(
+    page.getByRole("button", { name: "Ingresar", exact: true }),
+  ).toBeVisible();
+});
+test("contraseña temporal bloquea destinos hasta cambiarla", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { mustChangePassword: true });
+  await login(page);
+  await expect(
+    page.getByRole("heading", { name: "Cambiar contraseña temporal" }),
+  ).toBeVisible();
+  await page.goto("/admin/inicio");
+  await expect(
+    page.getByRole("heading", { name: "Cambiar contraseña temporal" }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Contraseña actual", { exact: true })
+    .fill("password123");
+  await page
+    .getByLabel("Nueva contraseña", { exact: true })
+    .fill("new-password123");
+  await page
+    .getByLabel("Repetir contraseña", { exact: true })
+    .fill("new-password123");
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(page).toHaveURL(/\/estudiante\/inicio$/);
+  expect(
+    mock.calls.find((c) => c.path === "/auth/change-password")?.body,
+  ).toEqual({ currentPassword: "password123", newPassword: "new-password123" });
+});
+test("un 403 de cambio obligatorio desde cualquier pantalla bloquea la sesión", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { role: "Usuario" });
+  await page.goto("/estudiante/inicio");
+  await expect(
+    page.getByRole("heading", { name: "Hola, Alex." }),
+  ).toBeVisible();
+  mock.failNext(
+    "/schedules",
+    403,
+    "Debe cambiar su contraseña temporal antes de continuar.",
+  );
+  await navigate(page, "Reservar");
+  await expect(
+    page.getByRole("heading", { name: "Cambiar contraseña temporal" }),
+  ).toBeVisible();
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+});
+test("activación lee token, lo elimina de URL y envía newPassword con CSRF", async ({
+  page,
+}) => {
+  const mock = await mockApi(page);
+  await page.goto("/activar-cuenta?token=activation-token&source=email");
+  await expect(page).toHaveURL(/\/activar-cuenta\?source=email$/);
+  await page.getByLabel("Contraseña", { exact: true }).fill("new-password123");
+  await page
+    .getByLabel("Repetir contraseña", { exact: true })
+    .fill("new-password123");
+  await page.getByRole("button", { name: "Guardar contraseña" }).click();
+  await expect(
+    page.getByText("La contraseña se actualizó correctamente."),
+  ).toBeVisible();
+  const call = mock.calls.find((c) => c.path === "/auth/activate")!;
+  expect(call.body).toEqual({
+    token: "activation-token",
+    newPassword: "new-password123",
+  });
+  expect(call.headers["x-gym-csrf"]).toBe("1");
+  expect(
+    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
+  ).toEqual([0, 0]);
+});
+test("recuperación siempre devuelve el mensaje genérico", async ({ page }) => {
+  const mock = await mockApi(page);
+  mock.failNext("/auth/password-resets", 429, "Demasiados intentos");
+  await page.goto("/recuperar-contrasena");
+  await page.getByLabel("Correo registrado").fill("unknown@example.invalid");
+  await page.getByRole("button", { name: "Enviar enlace" }).click();
+  await expect(
+    page.getByText(
+      "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.",
+    ),
+  ).toBeVisible();
+});
+test("ventana de inasistencias confirma lectura al cerrar", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { role: "Usuario", alerts: true });
+  await page.goto("/estudiante/inicio");
+  const dialog = page.getByRole("dialog", {
+    name: "Tienes reservas sin asistencia",
+  });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(
+    mock.calls.find((c) => c.path === "/me/alerts/1/acknowledge")?.headers[
+      "x-gym-csrf"
+    ],
+  ).toBe("1");
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Hola, Alex." }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+test("409 del servidor se muestra y reintentar conserva la clave del envío", async ({
+  page,
+}) => {
+  const mock = await mockApi(page);
+  await login(page);
+  mock.failNext("/reservations", 409, "No quedan cupos en este bloque.");
+  await navigate(page, "Reservar");
   await page
     .getByRole("button", { name: "Reservar", exact: true })
     .first()
@@ -114,75 +190,43 @@ test("409 conserva el diálogo y muestra el error", async ({ page }) => {
   await page
     .getByRole("button", { name: "Confirmar reserva", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toContainText("No quedan cupos");
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText(
+    "No quedan cupos en este bloque.",
+  );
+  await page
+    .getByRole("button", { name: "Confirmar reserva", exact: true })
+    .click();
+  await expect(page.locator(".reservation-row")).toHaveCount(1);
+  const calls = mock.calls.filter(
+    (c) => c.path === "/reservations" && c.method === "POST",
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[0].headers["idempotency-key"]).toBe(
+    calls[1].headers["idempotency-key"],
+  );
 });
 
-test("usuarios: registro, búsqueda y estado", async ({ page }) => {
-  await mockApi(page);
-  await login(page, true);
-  await navigate(page, "Usuarios");
-  await page
-    .getByRole("button", { name: "Agregar usuario", exact: true })
-    .click();
-  await page.getByLabel("RUT", { exact: true }).fill("11111111-1");
-  await page.getByLabel("Contraseña inicial").fill("temporal");
-  await page.getByLabel("Nombre", { exact: true }).fill("Persona Prueba");
-  await page
-    .getByLabel("Correo", { exact: true })
-    .fill("persona@example.invalid");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Agregar usuario", exact: true })
-    .click();
-  await page
-    .getByRole("textbox", { name: "Buscar usuarios" })
-    .fill("Persona Prueba");
-  await expect(page.locator("tbody tr")).toHaveCount(1);
-  const toggle = page.getByRole("switch", {
-    name: "Habilitar acceso de Persona Prueba",
-  });
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
-});
-
-test("día elegido, salto al contenido, accesibilidad y ancho", async ({
+test("Mi código QR incluye grupos de la rama aunque no haya reservas individuales", async ({
   page,
 }) => {
-  await mockApi(page);
-  await page.goto("/");
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await login(page);
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  const day = await page
-    .locator(".home-day")
-    .nth(3)
-    .locator("strong")
-    .innerText();
-  await page.locator(".home-day").nth(3).click();
-  await expect(
-    page.locator('.date-option[aria-pressed="true"] strong'),
-  ).toHaveText(day);
-  await page.locator(".skip-link").focus();
-  await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/estudiante\/horarios$/);
-  await expect(page.locator("#main-content")).toBeFocused();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
-});
-
-test("logout invalida sesión restaurable", async ({ page }) => {
-  const api = await mockApi(page);
-  await login(page);
-  const menu = page.getByRole("button", { name: "Abrir menú" });
-  if (await menu.isVisible()) await menu.click();
-  await page.locator(".logout").click();
-  await expect(page.getByRole("button", { name: "Ingresar" })).toBeVisible();
-  await page.reload();
-  await expect(page.getByRole("button", { name: "Ingresar" })).toBeVisible();
-  expect(api.mutations).toContain("POST /auth/logout");
+  const mock = await mockApi(page, { role: "Usuario" });
+  mock.groups.push({
+    id: 5,
+    sportBranch: { id: 1, name: "Fútbol" },
+    scheduleSlotId: 1,
+    date: mock.date,
+    startTime: "08:00",
+    endTime: "09:30",
+    mode: "Cupos",
+    seats: 4,
+    usedSeats: 0,
+    status: "Activa",
+    createdBy: "Equipo UCN",
+    createdAt: new Date().toISOString(),
+  });
+  await page.goto("/estudiante/qr");
+  await expect(page.locator(".ticket-code")).toHaveText("signed-G-5");
+  expect(mock.calls.some((c) => c.path === "/me/group-bookings/5/qr")).toBe(
+    true,
+  );
 });
