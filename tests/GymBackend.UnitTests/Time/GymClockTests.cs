@@ -69,6 +69,7 @@ public sealed class GymClockTests
                 ["Jwt:Audience"] = "clients",
                 ["Qr:SigningKey"] = new string('q', 32)
             }).Build());
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostEnvironment>(new Microsoft.Extensions.Hosting.Internal.HostingEnvironment { EnvironmentName = "Development" });
         services.AddGymOptions();
         await using var provider = services.BuildServiceProvider();
         var error = Assert.Throws<OptionsValidationException>(() =>

@@ -62,30 +62,20 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             SetEnvironment("Qr__SigningKey", QrKey);
             // Umbral alto: las pruebas inician sesiÃ³n muchas veces; las de lÃ­mite usan un host derivado.
             SetEnvironment("RateLimiting__Login__PermitLimit", "100000");
-            SetEnvironment("Database__Initialize", "false");
+            SetEnvironment("Database__Initialize", "true");
             SetEnvironment("Bootstrap__AdminRut", AdminRut);
             SetEnvironment("Bootstrap__AdminEmail", AdminEmail);
             SetEnvironment("Bootstrap__AdminUsername", AdminUsername);
             SetEnvironment("Bootstrap__AdminPassword", AdminPassword);
             _ = Server;
-            // B2 intentionally supplies no migrations. Test the current model in an ephemeral database.
+            // Migraciones y semilla reales (Database:Initialize); se añade una rama fija para las pruebas.
             await WithDbAsync(async db =>
             {
-                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-                db.Users.Add(new User
+                if (!await db.SportBranches.AnyAsync(b => b.Name == "Fixture", TestContext.Current.CancellationToken))
                 {
-                    Rut = AdminRut,
-                    Email = AdminEmail,
-                    Username = AdminUsername,
-                    FirstName = "Admin",
-                    LastName = "Test",
-                    Role = Roles.Admin,
-                    PasswordHash = new GymBackend.Application.Auth.Pbkdf2PasswordHasher().Hash(AdminPassword),
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                });
-                db.SportBranches.Add(new SportBranch { Name = "Fixture", CreatedAt = DateTimeOffset.UtcNow });
-                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                    db.SportBranches.Add(new SportBranch { Name = "Fixture", CreatedAt = DateTimeOffset.UtcNow });
+                    await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+                }
             });
         }
         catch
@@ -153,13 +143,15 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             return user.Id;
         });
+        // La sesión se emite con el reloj real: un host con reloj simulado emitiría un JWT ya vencido para el validador.
+        using var login = CreateClient();
         var client = (host ?? this).CreateClient();
         client.BaseAddress = new Uri("https://localhost/");
         client.DefaultRequestHeaders.Remove("X-Gym-Csrf");
         client.DefaultRequestHeaders.Add("X-Gym-Csrf", "1");
         try
         {
-            using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login", new { username, password },
+            using var response = await login.PostAsJsonAsync("/api/v1/auth/admin-login", new { username, password },
                 JsonOptions, TestContext.Current.CancellationToken);
             _ = await ReadAuthAsync(response);
             SetToken(client, ReadSessionToken(response));

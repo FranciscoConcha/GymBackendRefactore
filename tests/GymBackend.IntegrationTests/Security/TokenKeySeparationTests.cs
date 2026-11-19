@@ -71,6 +71,7 @@ public sealed class TokenKeySeparationTests(GymApiFactory factory)
                 ["Jwt:Audience"] = "clients",
                 ["Qr:SigningKey"] = signingKey,
             }).Build());
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostEnvironment>(new Microsoft.Extensions.Hosting.Internal.HostingEnvironment { EnvironmentName = "Development" });
         services.AddGymOptions();
         using var provider = services.BuildServiceProvider();
         var error = Assert.Throws<OptionsValidationException>(() =>

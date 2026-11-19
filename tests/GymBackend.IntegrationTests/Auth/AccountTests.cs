@@ -21,7 +21,7 @@ public sealed class AccountTests(GymApiFactory factory)
     {
         using var admin = await factory.CreateAdminClientAsync();
         var rut = TestData.NextRut();
-        var email = $"{rut}@example.test";
+        var email = $"{rut}@example.test".ToLowerInvariant();
         var json = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut,
@@ -131,7 +131,7 @@ public sealed class AccountTests(GymApiFactory factory)
         var user = await factory.CreateClientUserAsync();
         using var existing = user.Client;
         using var client = factory.CreateClient();
-        var email = $"user-{user.Rut}@example.test";
+        var email = $"user-{user.Rut}@example.test".ToLowerInvariant();
         // Concurrent requests must not bypass the per-account limit.
         var responses = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ =>
             client.PostAsJsonAsync("/api/v1/auth/password-resets", new { email }, JsonOptions, Ct)));
@@ -163,7 +163,7 @@ public sealed class AccountTests(GymApiFactory factory)
         var user = await factory.CreateClientUserAsync();
         using var oldSession = user.Client;
         using var client = factory.CreateClient();
-        var email = $"user-{user.Rut}@example.test";
+        var email = $"user-{user.Rut}@example.test".ToLowerInvariant();
         await factory.WithDbAsync(async db =>
         {
             (await db.Users.SingleAsync(u => u.Id == user.UserId, Ct)).MustChangePassword = true;

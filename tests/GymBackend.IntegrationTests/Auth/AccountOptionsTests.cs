@@ -57,6 +57,8 @@ public sealed class AccountOptionsTests(GymApiFactory factory)
                 ["Accounts:FrontendBaseUrl"] = frontend,
             }));
         });
-        Assert.Throws<OptionsValidationException>(() => host.CreateClient());
+        var error = Assert.ThrowsAny<Exception>(() => host.CreateClient());
+        var failures = error is AggregateException aggregate ? aggregate.InnerExceptions : [error];
+        Assert.All(failures, failure => Assert.IsType<OptionsValidationException>(failure));
     }
 }
