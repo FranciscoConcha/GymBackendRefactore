@@ -49,9 +49,9 @@ public sealed class GymTimeTests(GymApiFactory factory)
 
     [Theory]
     [InlineData("2026-11-17T10:44:00Z", "2026-11-17T10:45:00Z")]
-    [InlineData("2026-11-17T12:46:00Z", "2026-11-17T12:45:00Z")]
+    [InlineData("2026-11-17T12:30:00Z", "2026-11-17T12:29:59Z")] // fin exclusivo: 09:30 local rechazada, 09:29:59 admitida
     [InlineData("2026-07-14T11:44:00Z", "2026-07-14T11:45:00Z")]
-    public async Task EntryWindow_IncludesExactlyFifteenMinutes(string rejected, string accepted)
+    public async Task EntryWindow_FifteenMinutesBeforeStartUntilEnd(string rejected, string accepted)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.Parse(rejected, CultureInfo.InvariantCulture));
         using var host = factory.WithClock(clock);
