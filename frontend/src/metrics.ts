@@ -1,10 +1,9 @@
-import { localDate, type DemoState } from "./domain";
+import { localDate, type AppData } from "./domain";
 
 export type Period = 1 | 7 | 30;
-export const ROOM_CAPACITY = 20;
 
 export function dashboardMetrics(
-  state: DemoState,
+  state: AppData,
   period: Period,
   now = new Date(),
 ) {
@@ -14,37 +13,23 @@ export function dashboardMetrics(
     return localDate(date);
   });
   const records = state.reservations.filter((r) => days.includes(r.slot.date));
-  const valid = records.filter((r) => r.status !== "Cancelada");
-  const arrivals = valid.filter(
-    (r) => Boolean(r.entry) || ["En sala", "Completada"].includes(r.status),
-  );
-  const present = state.reservations.filter((r) => r.status === "En sala");
-  const cancelled = records.filter((r) => r.status === "Cancelada");
-  const durations = records.flatMap((r) => {
-    if (!r.entry || !r.exit || r.status !== "Completada") return [];
-    const minutes = (Date.parse(r.exit) - Date.parse(r.entry)) / 60000;
-    return Number.isFinite(minutes) && minutes >= 0 ? [minutes] : [];
-  });
+  const valid = records.filter((r) => r.status !== "Cancelado");
+  const arrivals = valid.filter((r) => r.status === "Asistió");
+  const cancelled = records.filter((r) => r.status === "Cancelado");
   const starts = [...new Set(valid.map((r) => r.slot.start))].sort();
   return {
     days,
     records,
     valid,
     arrivals,
-    present,
     cancelled,
     enabled: state.members.filter((m) => m.enabled).length,
-    pending: records.filter((r) => r.status === "Reservada").length,
+    pending: records.filter((r) => r.status === "Reservado").length,
     attendanceRate: valid.length
       ? Math.round((arrivals.length / valid.length) * 100)
       : null,
     cancellationRate: records.length
       ? Math.round((cancelled.length / records.length) * 100)
-      : null,
-    averageMinutes: durations.length
-      ? Math.round(
-          durations.reduce((sum, value) => sum + value, 0) / durations.length,
-        )
       : null,
     daily: days.map((date) => ({
       date,

@@ -103,7 +103,7 @@ export default function StudentDashboard({
                 <MapPin size={16} />
                 Sala de pesas
               </p>
-              <Badge tone={next.status === "En sala" ? "green" : "blue"}>
+              <Badge tone={next.status === "Asistió" ? "green" : "blue"}>
                 {next.status}
               </Badge>
               <Button secondary onClick={onQr}>
@@ -131,14 +131,14 @@ export default function StudentDashboard({
           icon={CalendarDays}
           label="Reservas pendientes"
           value={String(
-            upcoming.filter((r) => r.status === "Reservada").length,
+            upcoming.filter((r) => r.status === "Reservado").length,
           ).padStart(2, "0")}
         />
         <Stat
           icon={CheckCircle2}
-          label="Sesiones completadas"
+          label="Asistencias registradas"
           value={String(
-            reservations.filter((r) => r.status === "Completada").length,
+            reservations.filter((r) => r.status === "Asistió").length,
           ).padStart(2, "0")}
         />
         <Stat icon={Clock3} label="Por sesión" value="90" suffix="min" />
@@ -160,7 +160,7 @@ export default function StudentDashboard({
             <strong>{shortDate(day, { day: "2-digit" })}</strong>
             <span className="day-availability">
               <span />
-              Disponible
+              Ver horarios
             </span>
             <ArrowUpRight size={16} />
           </button>

@@ -25,7 +25,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-ucn-gym-frontend}
       Qr__SigningKey: ${QR_SIGNING_KEY:?Configure QR_SIGNING_KEY in .env}
       Cors__AllowedOrigins__0: http://localhost:4173
-      Cors__AllowedOrigins__1: http://localhost:8080
+      Cors__AllowedOrigins__1: http://localhost:${FRONTEND_PORT:-8080}
       Database__Initialize: "true"
       # Solo el proxy del frontend (red interna de Compose) puede fijar X-Forwarded-For.
       ForwardedHeaders__Enabled: "true"
@@ -44,7 +44,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
     depends_on:
       - api
     security_opt:

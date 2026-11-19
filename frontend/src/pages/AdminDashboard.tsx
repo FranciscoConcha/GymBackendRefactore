@@ -1,7 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import {
   Activity,
-  ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
@@ -11,17 +10,12 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { localDate, shortDate, type DemoState } from "../domain";
-import { dashboardMetrics, ROOM_CAPACITY, type Period } from "../metrics";
+import { shortDate, type AppData } from "../domain";
+import { dashboardMetrics, type Period } from "../metrics";
 
 const ActivityChart = lazy(() =>
   import("../components/admin-charts").then((module) => ({
     default: module.ActivityChart,
-  })),
-);
-const OccupancyChart = lazy(() =>
-  import("../components/admin-charts").then((module) => ({
-    default: module.OccupancyChart,
   })),
 );
 const DemandChart = lazy(() =>
@@ -39,7 +33,7 @@ function ChartLoading({ className }: { className: string }) {
 }
 
 interface Props {
-  state: DemoState;
+  state: AppData;
   onAccess: () => void;
   onReservations: () => void;
   onUsers: () => void;
@@ -80,26 +74,6 @@ export default function AdminDashboard({
 }: Props) {
   const [period, setPeriod] = useState<Period>(7);
   const metrics = dashboardMetrics(state, period);
-  const events = state.reservations
-    .flatMap((r) => {
-      const name =
-        state.members.find((m) => m.id === r.memberId)?.name ?? "Usuario";
-      return [
-        ...(r.entry
-          ? [{ id: `${r.id}-entry`, type: "Entrada", time: r.entry, name }]
-          : []),
-        ...(r.exit
-          ? [{ id: `${r.id}-exit`, type: "Salida", time: r.exit, name }]
-          : []),
-      ];
-    })
-    .filter(
-      (event) =>
-        Number.isFinite(Date.parse(event.time)) &&
-        metrics.days.includes(localDate(new Date(event.time))),
-    )
-    .sort((a, b) => Date.parse(b.time) - Date.parse(a.time))
-    .slice(0, 5);
   const periodLabel = period === 1 ? "Hoy" : `Últimos ${period} días`;
 
   return (
@@ -135,8 +109,8 @@ export default function AdminDashboard({
         />
         <Metric
           label="En sala ahora"
-          value={`${metrics.present.length}`}
-          detail={`Capacidad: ${ROOM_CAPACITY} personas`}
+          value="?"
+          detail="Ocupación actual no disponible"
           icon={Users}
           accent
         />
@@ -195,17 +169,14 @@ export default function AdminDashboard({
               Ahora
             </span>
           </div>
-          <div className="room-visual">
-            <Suspense fallback={<ChartLoading className="occupancy-echart" />}>
-              <OccupancyChart
-                present={metrics.present.length}
-                capacity={ROOM_CAPACITY}
-              />
-            </Suspense>
-          </div>
-          <div className="room-capacity">
-            <span>Capacidad</span>
-            <strong>{ROOM_CAPACITY} personas</strong>
+          <div className="panel-empty">
+            <p>La API no ofrece ocupación en tiempo real.</p>
+            <p>
+              Capacidad por bloque:{" "}
+              {state.slots.length
+                ? [...new Set(state.slots.map((s) => s.capacity))].join(", ")
+                : "Sin horarios"}
+            </p>
           </div>
           <button className="button" onClick={onAccess}>
             <ScanLine size={18} />
@@ -251,51 +222,10 @@ export default function AdminDashboard({
               <ArrowUpRight size={20} />
             </button>
           </div>
-          {events.length ? (
-            <div className="movement-list">
-              {events.map((event) => (
-                <div className="movement" key={event.id}>
-                  <span
-                    className={`movement-icon ${event.type === "Salida" ? "exit" : ""}`}
-                  >
-                    {event.type === "Entrada" ? (
-                      <ArrowDownLeft size={18} />
-                    ) : (
-                      <ArrowUpRight size={18} />
-                    )}
-                  </span>
-                  <div>
-                    <strong>{event.name}</strong>
-                    <span>
-                      {event.type} ·{" "}
-                      {new Intl.DateTimeFormat("es-CL", {
-                        day: "numeric",
-                        month: "short",
-                      }).format(new Date(event.time))}
-                    </span>
-                  </div>
-                  <time dateTime={event.time}>
-                    {new Date(event.time).toLocaleTimeString("es-CL", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </time>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="panel-empty">
-              <ScanLine size={28} />
-              <h3>Sin movimientos recientes</h3>
-              <p>Las entradas y salidas se registrarán aquí.</p>
-            </div>
-          )}
-          <div className="panel-bottom">
-            <span>
-              {metrics.averageMinutes === null
-                ? "Sin visitas completadas en el período"
-                : `${metrics.averageMinutes} min de permanencia media en el período`}
-            </span>
+          <div className="panel-empty">
+            <ScanLine size={28} />
+            <h3>Historial no disponible</h3>
+            <p>La API no ofrece historial de asistencias.</p>
           </div>
         </section>
       </div>

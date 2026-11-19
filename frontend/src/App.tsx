@@ -27,9 +27,7 @@ import {
   QrCode,
   ScanLine,
   Search,
-  ShieldCheck,
   Users,
-  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -39,23 +37,25 @@ import AdminDashboard from "./pages/AdminDashboard";
 import StudentDashboard from "./pages/StudentDashboard";
 import { Badge, Button } from "./components/ui";
 import {
-  access,
-  cancel,
-  DEMO_MEMBER,
   getDays,
-  loadDemo,
   remaining,
-  reserve,
   shortDate,
-  slotsFor,
-  STORAGE_KEY,
-  ticket,
-  type DemoState,
+  type AppData,
   type Member,
   type Reservation,
   type Role,
   type Slot,
+  durationMinutes,
+  hasStarted,
 } from "./domain";
+import {
+  api,
+  ApiError,
+  onUnauthorized,
+  type UserResponse,
+  type QrResponse,
+  type RegisterRequest,
+} from "./api";
 
 const Camera = lazy(() => import("./Camera"));
 const studentNav: [string, string, LucideIcon][] = [
@@ -71,10 +71,9 @@ const adminNav: [string, string, LucideIcon][] = [
   ["reservas", "Reservas", CalendarDays],
 ];
 const statusClass: Record<string, string> = {
-  Reservada: "blue",
-  "En sala": "green",
-  Completada: "neutral",
-  Cancelada: "red",
+  Reservado: "blue",
+  Asistió: "neutral",
+  Cancelado: "red",
 };
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -158,13 +157,24 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const segments = location.pathname.split("/").filter(Boolean);
-  const role: Role | null =
-    segments[0] === "admin"
+  const [user, setUser] = useState<UserResponse | null>(null);
+  const role: Role | null = user
+    ? user.role === "Admin"
       ? "admin"
-      : segments[0] === "estudiante"
-        ? "student"
-        : null;
-  const [state, setState] = useState(loadDemo);
+      : "student"
+    : null;
+  const [restoring, setRestoring] = useState(true);
+  const [loginAdmin, setLoginAdmin] = useState(false);
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [qr, setQr] = useState<QrResponse | null>(null);
+  const [state, setState] = useState<AppData>({
+    members: [],
+    reservations: [],
+    slots: [],
+  });
   const page = segments[1] || "inicio";
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(
@@ -179,15 +189,21 @@ export default function App() {
   const [showMember, setShowMember] = useState(false);
   const [scheduleDate, setScheduleDate] = useState(() => getDays()[0]);
   const heading = useRef<HTMLHeadingElement>(null);
-  const member = state.members.find((m) => m.id === DEMO_MEMBER)!;
+  const member: Member = {
+    id: user?.id ?? 0,
+    name: user?.name ?? "",
+    email: user?.email ?? "",
+    category: user?.userType ?? "",
+    enabled: user?.enabled ?? false,
+  };
   const nav = role === "admin" ? adminNav : studentNav;
   const currentPage =
     nav.some((n) => n[0] === page) || page === "perfil" ? page : "inicio";
   const myReservations = state.reservations.filter(
-    (r) => r.memberId === DEMO_MEMBER,
+    (r) => r.memberId === user?.id,
   );
   const upcoming = [...myReservations]
-    .filter((r) => ["Reservada", "En sala"].includes(r.status))
+    .filter((r) => r.status === "Reservado")
     .sort((a, b) =>
       `${a.slot.date}${a.slot.start}`.localeCompare(
         `${b.slot.date}${b.slot.start}`,
@@ -236,21 +252,98 @@ export default function App() {
   useLayoutEffect(() => {
     heading.current?.focus();
   }, [currentPage, role]);
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        setUser(null);
+        setState({ members: [], reservations: [], slots: [] });
+        setQr(null);
+        setSelected(null);
+        setToCancel(null);
+        setShowMember(false);
+        setMenu(false);
+        notify("Tu sesión ha expirado. Vuelve a iniciar sesión.", true);
+        navigate("/", { replace: true });
+      }),
+    [navigate],
+  );
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      setFailure(true);
-      setNotice("No se pudieron guardar los cambios en este navegador.");
-    }
-  }, [state]);
-  useEffect(() => {
-    const sync = (event: StorageEvent) => {
-      if (event.key === STORAGE_KEY) setState(loadDemo());
-    };
-    addEventListener("storage", sync);
-    return () => removeEventListener("storage", sync);
+    api
+      .me()
+      .then(setUser)
+      .catch((error) => {
+        if (!(error instanceof ApiError && error.status === 401))
+          notify(error.message, true);
+      })
+      .finally(() => setRestoring(false));
   }, []);
+  useEffect(() => {
+    if (!user) return;
+    const portal = user.role === "Admin" ? "admin" : "estudiante";
+    if (segments[0] !== portal)
+      navigate(`/${portal}/inicio`, { replace: true });
+  }, [user, location.pathname, navigate]);
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    Promise.all([
+      api.reservations(user),
+      user.role === "Admin" ? api.users() : Promise.resolve([user]),
+      api.schedules(scheduleDate),
+    ])
+      .then(([reservations, users, slots]) => {
+        if (active)
+          setState({
+            members: users.map((u) => ({ ...u, category: u.userType })),
+            slots: slots.map((v) => ({
+              id: v.id,
+              date: v.date,
+              start: v.startTime,
+              end: v.endTime,
+              capacity: v.capacity,
+              occupied: v.reservedCount,
+              zone: v.zone,
+            })),
+            reservations: reservations.map((r) => ({
+              id: r.id,
+              memberId: r.userId,
+              userName: r.userName,
+              status: r.status,
+              slot: {
+                id: r.scheduleSlotId,
+                date: r.date,
+                start: r.startTime,
+                end: r.endTime,
+                capacity: r.capacity,
+                occupied: 0,
+                zone: r.zone,
+              },
+            })),
+          });
+      })
+      .catch((error) => {
+        if (active) notify(error.message, true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, revision, scheduleDate, location.pathname]);
+  useEffect(() => {
+    setQr(null);
+    if (!user || currentPage !== "qr") return;
+    let active = true;
+    api
+      .qr()
+      .then((value) => {
+        if (active) setQr(value);
+      })
+      .catch((error) => {
+        if (active) notify(error.message, true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, currentPage]);
   useEffect(() => {
     if (!notice) return;
     const timeout = setTimeout(() => setNotice(""), 6500);
@@ -269,12 +362,15 @@ export default function App() {
     setFailure(error);
     setNotice(text);
   }
-  function update(
-    operation: (value: DemoState) => DemoState,
+  async function update(
+    operation: () => Promise<unknown>,
     success: string,
-  ): boolean {
+  ): Promise<boolean> {
+    if (busy) return false;
+    setBusy(true);
     try {
-      setState(operation(state));
+      await operation();
+      setRevision((v) => v + 1);
       notify(success);
       return true;
     } catch (error) {
@@ -285,12 +381,35 @@ export default function App() {
         true,
       );
       return false;
+    } finally {
+      setBusy(false);
     }
   }
-  function enter(nextRole: Role) {
-    navigate(`/${nextRole === "admin" ? "admin" : "estudiante"}/inicio`);
+  async function login(e: FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await api.login(loginAdmin, identifier, password);
+      setUser(await api.me());
+      setNotice(result.message);
+      setIdentifier("");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "No se pudo iniciar sesión.",
+        true,
+      );
+    } finally {
+      setPassword("");
+      setBusy(false);
+    }
   }
-
+  if (restoring)
+    return (
+      <main>
+        <p role="status">Restaurando sesión…</p>
+      </main>
+    );
   if (!role)
     return (
       <div className="login-page">
@@ -315,27 +434,44 @@ export default function App() {
           <div className="login-form">
             <span className="eyebrow">UNIVERSIDAD CATÓLICA DEL NORTE</span>
             <h2>Accede a tu espacio</h2>
-            <p className="intro">Selecciona tu portal.</p>
-            <button className="profile-option" onClick={() => enter("student")}>
-              <span className="option-icon">
-                <UserRound />
-              </span>
-              <span>
-                <strong>Estudiante</strong>
-                <small>Reservas y código de acceso</small>
-              </span>
-              <ArrowRight size={20} />
-            </button>
-            <button className="profile-option" onClick={() => enter("admin")}>
-              <span className="option-icon">
-                <ShieldCheck />
-              </span>
-              <span>
-                <strong>Administrador</strong>
-                <small>Usuarios y control de acceso</small>
-              </span>
-              <ArrowRight size={20} />
-            </button>
+            <form onSubmit={login} className="member-form">
+              <label className="field">
+                Portal
+                <select
+                  value={loginAdmin ? "admin" : "user"}
+                  onChange={(e) => {
+                    setLoginAdmin(e.target.value === "admin");
+                    setPassword("");
+                  }}
+                >
+                  <option value="user">Usuario</option>
+                  <option value="admin">Administración</option>
+                </select>
+              </label>
+              <label className="field">
+                {loginAdmin ? "Usuario" : "RUT"}
+                <input
+                  required
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  autoComplete="username"
+                />
+              </label>
+              <label className="field">
+                Contraseña
+                <input
+                  required
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+              {notice && <p role="alert">{notice}</p>}
+              <button className="button" disabled={busy} type="submit">
+                Ingresar
+              </button>
+            </form>
           </div>
           <span className="login-footer">Deportes UCN · Sala de pesas</span>
         </main>
@@ -400,7 +536,9 @@ export default function App() {
         </nav>
         <div className="sidebar-bottom">
           <button className="sidebar-profile" onClick={() => go("perfil")}>
-            <span className="avatar">{role === "admin" ? "RC" : "AM"}</span>
+            <span className="avatar">
+              {member.name.slice(0, 2).toUpperCase()}
+            </span>
             <span>
               <strong>{role === "admin" ? "Recepción" : member.name}</strong>
               <small>
@@ -411,9 +549,13 @@ export default function App() {
           </button>
           <button
             className="logout"
-            onClick={() => {
-              navigate("/");
-              setMenu(false);
+            onClick={async () => {
+              if (await update(() => api.logout(), "Sesión cerrada.")) {
+                setUser(null);
+                setState({ members: [], reservations: [], slots: [] });
+                setQr(null);
+                navigate("/");
+              }
             }}
           >
             <LogOut size={17} aria-hidden="true" />
@@ -446,10 +588,10 @@ export default function App() {
             </span>
             <button
               className="avatar small-avatar"
-              aria-label={`${role === "admin" ? "RC" : "AM"} · Ver perfil`}
+              aria-label={`${member.name.slice(0, 2).toUpperCase()} · Ver perfil`}
               onClick={() => go("perfil")}
             >
-              {role === "admin" ? "RC" : "AM"}
+              {member.name.slice(0, 2).toUpperCase()}
             </button>
           </div>
         </header>
@@ -465,7 +607,7 @@ export default function App() {
                 {currentPage === "inicio"
                   ? role === "admin"
                     ? "Panel general"
-                    : "Hola, Alex."
+                    : `Hola, ${member.name.split(" ")[0]}.`
                   : {
                       horarios: "Encuentra tu horario.",
                       reservas: role === "admin" ? "Reservas" : "Mis reservas",
@@ -485,7 +627,7 @@ export default function App() {
                       reservas: "Consulta el estado de cada sesión.",
                       qr: "Presenta este código en recepción.",
                       acceso:
-                        "Registra la entrada o salida con el QR de la reserva.",
+                        "Registra la entrada o salida con el QR personal del día.",
                       usuarios: "Gestiona el acceso de la comunidad.",
                       perfil: "Información de tu cuenta.",
                     }[currentPage]}
@@ -535,6 +677,8 @@ export default function App() {
               state={state}
               onSelect={setSelected}
               initialDate={scheduleDate}
+              onDate={setScheduleDate}
+              member={member}
             />
           )}
           {currentPage === "reservas" && (
@@ -548,20 +692,12 @@ export default function App() {
               onReserve={() => go("horarios")}
             />
           )}
-          {currentPage === "qr" && (
-            <QrPanel
-              reservations={upcoming}
-              member={member}
-              onReserve={() => go("horarios")}
-              onCopy={notify}
-            />
-          )}
+          {currentPage === "qr" && <QrPanel qr={qr} onCopy={notify} />}
           {currentPage === "acceso" && (
             <AccessPanel
-              state={state}
               onSubmit={(code, action) =>
                 update(
-                  (s) => access(s, code, action),
+                  () => api.access(code, action),
                   action === "entry"
                     ? "Entrada registrada."
                     : "Salida registrada.",
@@ -572,24 +708,22 @@ export default function App() {
           {currentPage === "usuarios" && (
             <Members
               state={state}
-              onToggle={(id) =>
-                update(
-                  (s) => ({
-                    ...s,
-                    members: s.members.map((m) =>
-                      m.id === id ? { ...m, enabled: !m.enabled } : m,
-                    ),
-                  }),
-                  "Estado actualizado.",
-                )
-              }
+              onToggle={(id) => {
+                const m = state.members.find((v) => v.id === id);
+                if (m)
+                  void update(
+                    () => api.status(id, !m.enabled),
+                    "Estado actualizado.",
+                  );
+              }}
             />
           )}
+
           {currentPage === "perfil" && (
             <div className="profile-layout">
               <section className="card profile-card">
                 <span className="avatar profile-avatar">
-                  {role === "admin" ? "RC" : "AM"}
+                  {member.name.slice(0, 2).toUpperCase()}
                 </span>
                 <h2>{role === "admin" ? "Recepción" : member.name}</h2>
                 <Badge tone="blue">
@@ -598,11 +732,7 @@ export default function App() {
                 <dl>
                   <div>
                     <dt>Correo</dt>
-                    <dd>
-                      {role === "admin"
-                        ? "recepcion@example.invalid"
-                        : member.email}
-                    </dd>
+                    <dd>{member.email}</dd>
                   </div>
                   <div>
                     <dt>Estado</dt>
@@ -657,10 +787,10 @@ export default function App() {
               Volver
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  update(
-                    (s) => reserve(s, DEMO_MEMBER, selected),
+                  await update(
+                    () => api.reserve(selected.id, selected.date),
                     "Reserva confirmada. Tu QR ya está disponible.",
                   )
                 ) {
@@ -690,8 +820,13 @@ export default function App() {
             </Button>
             <button
               className="button danger"
-              onClick={() => {
-                if (update((s) => cancel(s, toCancel.id), "Reserva cancelada."))
+              onClick={async () => {
+                if (
+                  await update(
+                    () => api.cancel(toCancel.id),
+                    "Reserva cancelada.",
+                  )
+                )
                   setToCancel(null);
               }}
             >
@@ -703,22 +838,12 @@ export default function App() {
       {showMember && (
         <MemberForm
           onClose={() => setShowMember(false)}
-          onSave={(data) => {
-            const email = data.email.trim().toLowerCase();
-            if (state.members.some((m) => m.email.toLowerCase() === email))
-              return "Este correo ya está registrado.";
-            update(
-              (s) => ({
-                ...s,
-                members: [
-                  ...s.members,
-                  { ...data, email, id: crypto.randomUUID(), enabled: true },
-                ],
-              }),
-              "Usuario agregado.",
-            );
-            setShowMember(false);
-            return "";
+          onSave={async (data) => {
+            if (await update(() => api.register(data), "Usuario agregado.")) {
+              setShowMember(false);
+              return "";
+            }
+            return "No se pudo agregar el usuario.";
           }}
         />
       )}
@@ -730,13 +855,17 @@ function Schedule({
   state,
   onSelect,
   initialDate,
+  onDate,
+  member,
 }: {
-  state: DemoState;
+  state: AppData;
   onSelect: (slot: Slot) => void;
   initialDate: string;
+  onDate: (date: string) => void;
+  member: Member;
 }) {
   const days = getDays();
-  const [date, setDate] = useState(initialDate);
+  const date = initialDate;
   return (
     <>
       <div className="schedule-toolbar">
@@ -752,7 +881,7 @@ function Schedule({
             key={day}
             aria-pressed={date === day}
             className={`date-option ${date === day ? "selected" : ""}`}
-            onClick={() => setDate(day)}
+            onClick={() => onDate(day)}
           >
             <span>{shortDate(day, { weekday: "short" }).replace(".", "")}</span>
             <strong>{shortDate(day, { day: "2-digit" })}</strong>
@@ -768,82 +897,88 @@ function Schedule({
         </span>
       </div>
       <div className="slots-grid">
-        {slotsFor(date).map((slot) => {
-          const available = remaining(slot, state);
-          const mine = state.reservations.some(
-            (r) =>
-              r.memberId === DEMO_MEMBER &&
-              r.slot.id === slot.id &&
-              r.status !== "Cancelada",
-          );
-          return (
-            <article
-              key={slot.id}
-              className={`card slot-card ${!available ? "full" : ""}`}
-            >
-              <div className="slot-top">
-                <span className="slot-icon">
-                  <Dumbbell size={22} />
-                </span>
-                <Badge tone={mine ? "blue" : available ? "green" : "neutral"}>
-                  {mine ? "Tu reserva" : available ? "Disponible" : "Completo"}
-                </Badge>
-              </div>
-              <h3>
-                {slot.start}
-                <span>—</span>
-                {slot.end}
-              </h3>
-              <p className="meta">
-                <Clock3 size={15} />
-                90 min
-                <span className="separator" />
-                <MapPin size={15} />
-                Sala de pesas
-              </p>
-              <div className="capacity-info">
-                <span>
-                  {available
-                    ? `${available} cupos disponibles`
-                    : "Sin cupos disponibles"}
-                </span>
-                <span>
-                  {slot.capacity - available}/{slot.capacity}
-                </span>
-              </div>
-              <div className="capacity-bar">
-                <span
-                  style={{
-                    width: `${((slot.capacity - available) / slot.capacity) * 100}%`,
-                  }}
-                />
-              </div>
-              <Button
-                secondary={available > 0}
-                disabled={
-                  !available ||
-                  mine ||
-                  !state.members.find((m) => m.id === DEMO_MEMBER)?.enabled
-                }
-                onClick={() => onSelect(slot)}
+        {state.slots
+          .filter((s) => s.date === date)
+          .map((slot) => {
+            const available = remaining(slot);
+            const started = hasStarted(slot);
+            const mine = state.reservations.some(
+              (r) =>
+                r.memberId === member.id &&
+                r.slot.id === slot.id &&
+                r.slot.date === slot.date &&
+                r.status !== "Cancelado",
+            );
+            return (
+              <article
+                key={slot.id}
+                className={`card slot-card ${!available ? "full" : ""}`}
               >
-                {mine ? (
-                  <>
-                    <Check size={17} />
-                    Ya reservado
-                  </>
-                ) : available ? (
-                  <>
-                    Reservar
-                    <ArrowRight size={17} />
-                  </>
-                ) : (
-                  "Bloque completo"
-                )}
-              </Button>
-            </article>
-          );
-        })}
+                <div className="slot-top">
+                  <span className="slot-icon">
+                    <Dumbbell size={22} />
+                  </span>
+                  <Badge tone={mine ? "blue" : available ? "green" : "neutral"}>
+                    {mine
+                      ? "Tu reserva"
+                      : available
+                        ? "Disponible"
+                        : "Completo"}
+                  </Badge>
+                </div>
+                <h3>
+                  {slot.start}
+                  <span>—</span>
+                  {slot.end}
+                </h3>
+                <p className="meta">
+                  <Clock3 size={15} />
+                  {durationMinutes(slot)} min
+                  <span className="separator" />
+                  <MapPin size={15} />
+                  {slot.zone}
+                </p>
+                <div className="capacity-info">
+                  <span>
+                    {available
+                      ? `${available} cupos disponibles`
+                      : "Sin cupos disponibles"}
+                  </span>
+                  <span>
+                    {slot.capacity - available}/{slot.capacity}
+                  </span>
+                </div>
+                <div className="capacity-bar">
+                  <span
+                    style={{
+                      width: `${slot.capacity > 0 ? ((slot.capacity - available) / slot.capacity) * 100 : 0}%`,
+                    }}
+                  />
+                </div>
+                <Button
+                  secondary={available > 0}
+                  disabled={!available || mine || started || !member.enabled}
+                  onClick={() => onSelect(slot)}
+                >
+                  {mine ? (
+                    <>
+                      <Check size={17} />
+                      Ya reservado
+                    </>
+                  ) : started ? (
+                    "Bloque iniciado"
+                  ) : available ? (
+                    <>
+                      Reservar
+                      <ArrowRight size={17} />
+                    </>
+                  ) : (
+                    "Bloque completo"
+                  )}
+                </Button>
+              </article>
+            );
+          })}
       </div>
     </>
   );
@@ -856,7 +991,7 @@ function ReservationList({
   onCancel,
 }: {
   reservations: Reservation[];
-  state: DemoState;
+  state: AppData;
   admin?: boolean;
   onCancel: (r: Reservation) => void;
 }) {
@@ -889,20 +1024,9 @@ function ReservationList({
               <span>·</span>
               {r.slot.start} a {r.slot.end}
             </p>
-            {r.entry && (
-              <small>
-                Entrada{" "}
-                {new Date(r.entry).toLocaleTimeString("es-CL", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-                {r.exit &&
-                  ` · Salida ${new Date(r.exit).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}`}
-              </small>
-            )}
           </div>
           <Badge tone={statusClass[r.status]}>{r.status}</Badge>
-          {r.status === "Reservada" && (
+          {r.status === "Reservado" && (
             <button
               className="text-button cancel-link"
               onClick={() => onCancel(r)}
@@ -924,13 +1048,13 @@ function Reservations({
   onReserve,
 }: {
   reservations: Reservation[];
-  state: DemoState;
+  state: AppData;
   admin: boolean;
   onCancel: (r: Reservation) => void;
   onReserve: () => void;
 }) {
   const [filter, setFilter] = useState("Todas");
-  const filters = ["Todas", "Reservada", "En sala", "Completada", "Cancelada"];
+  const filters = ["Todas", "Reservado", "Asistió", "Cancelado"];
   const visible = [...reservations]
     .reverse()
     .filter((r) => filter === "Todas" || r.status === filter);
@@ -944,12 +1068,12 @@ function Reservations({
             className={f === filter ? "selected" : ""}
             onClick={() => setFilter(f)}
           >
-            {f === "Reservada"
+            {f === "Reservado"
               ? "Pendientes"
-              : f === "Completada"
-                ? "Completadas"
-                : f === "Cancelada"
-                  ? "Canceladas"
+              : f === "Asistió"
+                ? "Asistencias"
+                : f === "Cancelado"
+                  ? "Cancelados"
                   : f}
             <span>
               {
@@ -991,147 +1115,64 @@ function Reservations({
 }
 
 function QrPanel({
-  reservations,
-  member,
-  onReserve,
+  qr,
   onCopy,
 }: {
-  reservations: Reservation[];
-  member: Member;
-  onReserve: () => void;
+  qr: QrResponse | null;
   onCopy: (text: string, error?: boolean) => void;
 }) {
-  const [selectedId, setSelectedId] = useState("");
-  const reservation =
-    reservations.find((r) => r.id === selectedId) ?? reservations[0];
-  if (!reservation)
+  if (!qr)
     return (
       <section className="card">
-        <Empty
-          title="Primero, una reserva"
-          action={
-            <Button onClick={onReserve}>
-              Reservar un horario
-              <ArrowRight size={17} />
-            </Button>
-          }
-        >
-          Tu código estará disponible al confirmar un bloque.
-        </Empty>
+        <p role="status">Código no disponible.</p>
       </section>
     );
   return (
-    <div className="qr-layout">
-      <section className="card qr-card">
-        <div className="qr-card-heading">
-          <Brand />
-        </div>
-        <div className="qr-person">
-          <h2>{member.name}</h2>
-          <span>{member.category}</span>
-        </div>
-        {reservations.length > 1 && (
-          <label className="field">
-            Reserva
-            <select
-              value={reservation.id}
-              onChange={(e) => setSelectedId(e.target.value)}
-            >
-              {reservations.map((r) => (
-                <option value={r.id} key={r.id}>
-                  {shortDate(r.slot.date)} · {r.slot.start}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <div className="qr-frame">
-          <QRCodeSVG
-            value={ticket(reservation.id)}
-            size={224}
-            level="M"
-            marginSize={3}
-            title="Código QR de la reserva"
-          />
-        </div>
-        <Badge tone={statusClass[reservation.status]}>
-          {reservation.status}
-        </Badge>
-        <div className="qr-slot">
-          <strong className="capitalize">
-            {shortDate(reservation.slot.date)}
-          </strong>
-          <span>
-            {reservation.slot.start} a {reservation.slot.end}
-          </span>
-          <span>Sala de pesas</span>
-        </div>
-        <button
-          className="text-button"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(ticket(reservation.id));
-              onCopy("Código copiado.");
-            } catch {
-              onCopy(
-                "No pudimos copiar el código. Puedes seleccionarlo debajo.",
-                true,
-              );
-            }
-          }}
-        >
-          Copiar código
-          <ArrowUpRight size={16} />
-        </button>
-        <code className="ticket-code">{ticket(reservation.id)}</code>
-      </section>
-      <aside className="qr-instructions">
-        <span className="eyebrow">EN RECEPCIÓN</span>
-        <h2>Cómo usar tu QR</h2>
-        <ol>
-          <li>
-            <span>01</span>
-            <div>
-              <h3>Presenta tu código</h3>
-              <p>Recepción registrará tu entrada.</p>
-            </div>
-          </li>
-          <li>
-            <span>02</span>
-            <div>
-              <h3>Disfruta tu sesión</h3>
-              <p>Tu bloque dura 90 minutos.</p>
-            </div>
-          </li>
-          <li>
-            <span>03</span>
-            <div>
-              <h3>Registra tu salida</h3>
-              <p>Muestra el mismo código al terminar.</p>
-            </div>
-          </li>
-        </ol>
-      </aside>
-    </div>
+    <section className="card qr-card">
+      <Brand />
+      <h2>{qr.name}</h2>
+      <p>QR personal del día {shortDate(qr.date)}</p>
+      <div className="qr-frame">
+        <QRCodeSVG
+          value={qr.token}
+          size={224}
+          marginSize={3}
+          title="Código QR personal del día"
+        />
+      </div>
+      <p>
+        Válido desde {new Date(qr.validFrom).toLocaleString("es-CL")} hasta{" "}
+        {new Date(qr.validUntil).toLocaleString("es-CL")}
+      </p>
+      <button
+        className="text-button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(qr.token);
+            onCopy("Código copiado.");
+          } catch {
+            onCopy("No pudimos copiar el código.", true);
+          }
+        }}
+      >
+        Copiar código
+      </button>
+      <code className="ticket-code">{qr.token}</code>
+    </section>
   );
 }
 
 function AccessPanel({
-  state,
   onSubmit,
 }: {
-  state: DemoState;
-  onSubmit: (code: string, action: "entry" | "exit") => boolean;
+  onSubmit: (code: string, action: "entry" | "exit") => Promise<boolean>;
 }) {
   const [action, setAction] = useState<"entry" | "exit">("entry");
   const [code, setCode] = useState("");
   const [camera, setCamera] = useState(false);
   const [success, setSuccess] = useState(false);
-  const candidates = state.reservations.filter(
-    (r) => r.status === (action === "entry" ? "Reservada" : "En sala"),
-  );
-  function submit(value = code) {
-    setSuccess(onSubmit(value, action));
+  async function submit(value = code) {
+    setSuccess(await onSubmit(value, action));
   }
   return (
     <div className="access-layout">
@@ -1189,7 +1230,7 @@ function AccessPanel({
               </h3>
               <p>
                 {success
-                  ? "El historial ya está actualizado."
+                  ? "La API confirmó el registro."
                   : "Activa la cámara para escanear."}
               </p>
             </>
@@ -1214,7 +1255,7 @@ function AccessPanel({
           }}
         >
           <label className="field">
-            Código de la reserva
+            Código personal del día
             <input
               value={code}
               onChange={(e) => {
@@ -1231,74 +1272,9 @@ function AccessPanel({
           </button>
         </form>
       </section>
-      <aside>
-        <section className="card access-summary">
-          <div className="section-title">
-            <h2>En sala</h2>
-            <Badge tone="green">
-              {state.reservations.filter((r) => r.status === "En sala").length}{" "}
-              personas
-            </Badge>
-          </div>
-          {state.reservations
-            .filter((r) => r.status === "En sala")
-            .map((r) => (
-              <div className="present-member" key={r.id}>
-                <span className="avatar">
-                  {state.members
-                    .find((m) => m.id === r.memberId)
-                    ?.name.slice(0, 1)}
-                </span>
-                <div>
-                  <strong>
-                    {state.members.find((m) => m.id === r.memberId)?.name}
-                  </strong>
-                  <span>
-                    Bloque {r.slot.start} a {r.slot.end}
-                  </span>
-                </div>
-              </div>
-            ))}
-          {!state.reservations.some((r) => r.status === "En sala") && (
-            <p className="muted">Sin entradas abiertas.</p>
-          )}
-        </section>
-        <section className="card reservation-lookup">
-          <span className="eyebrow">BÚSQUEDA MANUAL</span>
-          <h3>
-            {action === "entry" ? "Reservas pendientes" : "Visitas abiertas"}
-          </h3>
-          <p>Selecciona una persona para cargar su reserva.</p>
-          {candidates.length ? (
-            candidates.map((r) => (
-              <button
-                className="lookup-reservation"
-                key={r.id}
-                onClick={() => {
-                  setCode(ticket(r.id));
-                  setSuccess(false);
-                }}
-              >
-                <span>
-                  <strong>
-                    {state.members.find((m) => m.id === r.memberId)?.name}
-                  </strong>
-                  <small>
-                    {shortDate(r.slot.date, { day: "numeric", month: "short" })}{" "}
-                    · {r.slot.start}
-                  </small>
-                </span>
-                <ChevronRight size={18} />
-              </button>
-            ))
-          ) : (
-            <p className="muted">
-              {action === "entry"
-                ? "No hay reservas pendientes."
-                : "No hay visitas abiertas."}
-            </p>
-          )}
-        </section>
+      <aside className="card">
+        <h2>Asistencias</h2>
+        <p>El historial de entradas y salidas no está disponible en la API.</p>
       </aside>
     </div>
   );
@@ -1308,8 +1284,8 @@ function Members({
   state,
   onToggle,
 }: {
-  state: DemoState;
-  onToggle: (id: string) => void;
+  state: AppData;
+  onToggle: (id: number) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Todos");
@@ -1408,24 +1384,52 @@ function MemberForm({
   onSave,
   onClose,
 }: {
-  onSave: (data: Omit<Member, "id" | "enabled">) => string;
+  onSave: (data: RegisterRequest) => Promise<string>;
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [category, setCategory] = useState("Estudiante");
+  const [rut, setRut] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
       setError("Ingresa un nombre.");
       return;
     }
-    setError(onSave({ name: name.trim(), email, category }));
+    setError(
+      await onSave({
+        name: name.trim(),
+        email,
+        rut,
+        password: newPassword,
+        userType: category as RegisterRequest["userType"],
+      }),
+    );
   }
   return (
     <Modal title="Agregar usuario" onClose={onClose}>
       <form onSubmit={submit} className="member-form">
+        <label className="field">
+          RUT
+          <input
+            required
+            value={rut}
+            onChange={(e) => setRut(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          Contraseña inicial
+          <input
+            type="password"
+            required
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+        </label>
         <label className="field">
           Nombre
           <input
@@ -1455,13 +1459,7 @@ function MemberForm({
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
-            {[
-              "Estudiante",
-              "Docente",
-              "Funcionario",
-              "Deportista",
-              "Externo",
-            ].map((c) => (
+            {["Estudiante", "Administrador"].map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
