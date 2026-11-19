@@ -1,44 +1,30 @@
+using GymBackend.Application.Schedules;
 using GymBackend.DTOs;
-using GymBackend.Domain;
-using GymBackend.Data;
+using GymBackend.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace GymBackend.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route(ApiRoutes.V1)]
 [Authorize]
 public class SchedulesController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly IScheduleService _service;
 
-    public SchedulesController(AppDbContext context)
+    public SchedulesController(IScheduleService service)
     {
-        _context = context;
+        _service = service;
     }
 
     [HttpGet]
     [ProducesResponseType<ScheduleResponse[]>(StatusCodes.Status200OK)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetSchedules()
+    public async Task<IActionResult> GetSchedules([FromQuery] string? date = null, CancellationToken ct = default)
     {
-        var schedules = await _context.ScheduleSlots
-            .Where(slot => slot.Enabled)
-            .OrderBy(slot => slot.Id)
-            .ToListAsync();
-
-        var activeReservations = await _context.Reservations
-            .Where(reservation => reservation.Status == ReservationStatuses.Reserved)
-            .ToListAsync();
-
-        var result = schedules.Select(schedule => ScheduleResponse.From(schedule, activeReservations.Count(reservation =>
-                reservation.Day == schedule.Day &&
-                reservation.StartTime == schedule.StartTime &&
-                reservation.EndTime == schedule.EndTime &&
-                reservation.Zone == schedule.Zone)));
-
-        return Ok(result);
+        return this.ToActionResult(await _service.GetEnabledAsync(date, ct));
     }
 }
+

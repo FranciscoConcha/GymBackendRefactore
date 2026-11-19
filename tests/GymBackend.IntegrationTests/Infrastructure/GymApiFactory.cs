@@ -7,12 +7,14 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using GymBackend.Data;
+using GymBackend.Domain;
 using GymBackend.Models;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Time.Testing;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.PostgreSql;
 
@@ -33,7 +35,15 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public WebApplicationFactory<Program> WithClock(FakeTimeProvider clock) =>
         WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock)));
 
+    public WebApplicationFactory<Program> WithClockAndSettings(FakeTimeProvider clock, IDictionary<string, string?> settings) =>
+        WithWebHostBuilder(b =>
+        {
+            b.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(settings));
+            b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock));
+        });
+
     public string JwtKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    public string QrKey { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     public string AdminRut { get; } = TestData.NextRut();
     public string AdminEmail { get; } = $"admin-{Guid.NewGuid():N}@example.test";
     public string AdminUsername { get; } = $"admin-{Guid.NewGuid():N}";
@@ -46,6 +56,11 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             await _postgres.StartAsync(TestContext.Current.CancellationToken);
             SetEnvironment("ConnectionStrings__DefaultConnection", _postgres.GetConnectionString());
             SetEnvironment("Jwt__Key", JwtKey);
+            SetEnvironment("Jwt__Issuer", "gym-tests");
+            SetEnvironment("Jwt__Audience", "gym-tests-clients");
+            SetEnvironment("Qr__SigningKey", QrKey);
+            // Umbral alto: las pruebas inician sesión muchas veces; las de límite usan un host derivado.
+            SetEnvironment("RateLimiting__Login__PermitLimit", "100000");
             SetEnvironment("Database__Initialize", "true");
             SetEnvironment("Bootstrap__AdminRut", AdminRut);
             SetEnvironment("Bootstrap__AdminEmail", AdminEmail);
@@ -58,6 +73,16 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             await DisposeAsync();
             throw;
         }
+    }
+
+    // CreateClient reasigna BaseAddress desde ClientOptions después de ConfigureClient: se fija aquí para que
+    // la cookie Secure de sesión viaje por https (los hosts derivados copian ClientOptions).
+    public GymApiFactory() => ClientOptions.BaseAddress = new Uri("https://localhost/");
+
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.DefaultRequestHeaders.Add("X-Gym-Csrf", "1");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
@@ -89,10 +114,10 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var client = CreateClient();
         try
         {
-            using var response = await client.PostAsJsonAsync("/api/auth/admin-login",
+            using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login",
                 new { username = AdminUsername, password = AdminPassword }, JsonOptions, TestContext.Current.CancellationToken);
-            var auth = await ReadAuthAsync(response);
-            SetToken(client, auth.Token);
+            _ = await ReadAuthAsync(response);
+            SetToken(client, ReadSessionToken(response));
             return client;
         }
         catch
@@ -108,9 +133,13 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var rut = TestData.NextRut();
         var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
         using var admin = await CreateAdminClientAsync();
-        using var registration = await admin.PostAsJsonAsync("/api/auth/register", new
+        using var registration = await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
-            rut, name = $"Test {rut}", email = $"user-{rut}@example.test", password, userType,
+            rut,
+            name = $"Test {rut}",
+            email = $"user-{rut}@example.test",
+            password,
+            userType,
         }, JsonOptions, TestContext.Current.CancellationToken);
         var registered = await ReadAuthAsync(registration);
         var userId = registered.User?.Id
@@ -118,9 +147,9 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var client = CreateClient();
         try
         {
-            using var login = await client.PostAsJsonAsync("/api/auth/login", new { rut, password }, JsonOptions, TestContext.Current.CancellationToken);
-            var auth = await ReadAuthAsync(login);
-            SetToken(client, auth.Token);
+            using var login = await client.PostAsJsonAsync("/api/v1/auth/login", new { rut, password }, JsonOptions, TestContext.Current.CancellationToken);
+            _ = await ReadAuthAsync(login);
+            SetToken(client, ReadSessionToken(login));
             return (client, userId, rut, password);
         }
         catch
@@ -140,7 +169,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     public string CreateJwt(int userId, string role, string rut, string name = "Test", DateTime? expires = null)
         => CreateJwt(userId.ToString(CultureInfo.InvariantCulture), role, rut, name, expires);
 
-    public string CreateJwt(string? userId, string role, string rut, string name = "Test", DateTime? expires = null)
+    public string CreateJwt(string? userId, string role, string rut, string name = "Test", DateTime? expires = null,
+        string? issuer = "gym-tests", string? audience = "gym-tests-clients", string? signingKey = null)
     {
         var claims = new List<Claim>
         {
@@ -152,8 +182,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         if (userId is not null)
             claims.Add(new Claim(ClaimTypes.NameIdentifier, userId));
         var credentials = new SigningCredentials(
-            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey)), SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(claims: claims,
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey ?? JwtKey)), SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(issuer: issuer, audience: audience, claims: claims,
             expires: expires ?? DateTime.UtcNow.AddHours(8), signingCredentials: credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
@@ -170,17 +200,37 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         return await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
     }
 
-    public Task<ScheduleSlot> CreateSlotAsync(string day, string start, string end, int capacity = 20) =>
+    public Task<ScheduleSlot> CreateSlotAsync(DayOfWeek day, TimeOnly start, TimeOnly end, int capacity = 20) =>
         WithDbAsync(async db =>
         {
             var slot = new ScheduleSlot
             {
-                Day = day, StartTime = start, EndTime = end, Capacity = capacity,
-                Zone = $"Zona-{Guid.NewGuid():N}", Enabled = true,
+                Day = day,
+                StartTime = start,
+                EndTime = end,
+                Capacity = capacity,
+                Zone = $"Zona-{Guid.NewGuid():N}",
+                Enabled = true,
             };
             db.ScheduleSlots.Add(slot);
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             return slot;
+        });
+
+    public Task<Reservation> InsertReservationAsync(int userId, int slotId, DateOnly date,
+        ReservationStatus status = ReservationStatus.Reserved) => WithDbAsync(async db =>
+        {
+            var reservation = new Reservation
+            {
+                UserId = userId,
+                ScheduleSlotId = slotId,
+                Date = date,
+                Status = status,
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Reservations.Add(reservation);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return reservation;
         });
 
     private void SetEnvironment(string name, string value)
@@ -195,6 +245,11 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         return await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, TestContext.Current.CancellationToken)
             ?? throw new InvalidOperationException("La API devolvió una respuesta de autenticación vacía.");
     }
+
+    private static string ReadSessionToken(HttpResponseMessage response) =>
+        response.Headers.GetValues("Set-Cookie")
+            .Single(value => value.StartsWith("__Host-gym_session=", StringComparison.Ordinal))
+            .Split(';')[0].Split('=', 2)[1];
 
     private static void SetToken(HttpClient client, string? token)
     {

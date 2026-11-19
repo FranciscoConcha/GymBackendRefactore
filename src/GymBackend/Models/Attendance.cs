@@ -6,11 +6,11 @@ public class Attendance
 
     public int UserId { get; set; }
 
-    public string Rut { get; set; } = string.Empty;
+    public User User { get; set; } = null!;
 
-    public string UserName { get; set; } = string.Empty;
 
-    public string Date { get; set; } = string.Empty;
+
+    public DateOnly Date { get; set; }
 
     public DateTime? EntryTime { get; set; }
 
@@ -21,6 +21,8 @@ public class Attendance
     public string? ExitAdminRut { get; set; }
 
     public int? ReservationId { get; set; }
+    public Reservation? Reservation { get; set; }
 
     public bool CheckedIn { get; set; }
 }
+

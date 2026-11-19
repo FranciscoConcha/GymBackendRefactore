@@ -14,18 +14,36 @@ jobs:
     name: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - run: dotnet restore
+      - name: Format
+        run: dotnet format GymBackend.slnx --verify-no-changes --no-restore
       - run: dotnet build -c Release --no-restore
-      - name: Test (si existen proyectos de prueba)
+      - name: Test con cobertura
+        run: >
+          dotnet test -c Release --no-build --logger trx --results-directory TestResults
+          --collect "Code Coverage" --settings coverage.runsettings
+      - name: Resumen de cobertura
+        if: always()
         shell: bash
         run: |
-          if ls tests/*/*.csproj >/dev/null 2>&1; then
-            dotnet test -c Release --no-build --logger "trx" --results-directory TestResults
-          else
-            echo "Sin proyectos de prueba todavía."
-          fi
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import glob, xml.etree.ElementTree as ET
+          files = glob.glob("TestResults/**/*.cobertura.xml", recursive=True)
+          print("## Cobertura")
+          for f in files:
+              r = ET.parse(f).getroot()
+              print(f"- `{f.split('/')[-1]}`: líneas {float(r.get('line-rate', 0)) * 100:.1f} %, ramas {float(r.get('branch-rate', 0)) * 100:.1f} %")
+          if not files:
+              print("Sin informes de cobertura.")
+          EOF
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: test-results
+          path: TestResults
+          retention-days: 7
       - run: docker build -t ucn-gym-api:check .

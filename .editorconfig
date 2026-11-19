@@ -18,3 +18,6 @@ trim_trailing_whitespace = false
 csharp_style_namespace_declarations = file_scoped:suggestion
 dotnet_sort_system_directives_first = true
 csharp_style_var_for_built_in_types = true:suggestion
+
+[**/Migrations/*.cs]
+generated_code = true

@@ -10,37 +10,37 @@ namespace GymBackend.IntegrationTests.Contracts;
 public sealed class ResponseContractTests(GymApiFactory factory)
 {
     private const string UserShape = "id:n rut:s name:s email:s username:s userType:s role:s enabled:b";
-    private const string ReservationShape = "id:n userId:n userName:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s";
+    private const string ReservationShape = "id:n userId:n userName:s scheduleSlotId:n date:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s";
     private const string AttendanceShape = "id:n userId:n rut:s userName:s date:s entryTime:s? entryAdminRut:s? exitTime:s? exitAdminRut:s? reservationId:n? checkedIn:b";
 
     [Fact]
     public async Task AuthResponses_HaveExactPropertiesAndTypes()
     {
         using var anonymous = factory.CreateClient();
-        var login = await Expect(await anonymous.PostAsJsonAsync("/api/auth/admin-login",
+        var login = await Expect(await anonymous.PostAsJsonAsync("/api/v1/auth/admin-login",
             new { username = factory.AdminUsername, password = factory.AdminPassword }, JsonOptions, Ct), HttpStatusCode.OK);
         Auth(login);
         using var admin = await factory.CreateAdminClientAsync();
         var rut = TestData.NextRut();
         var password = Guid.NewGuid().ToString("N");
-        var registered = await Expect(await admin.PostAsJsonAsync("/api/auth/register",
+        var registered = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register",
             new { rut, name = "Contrato", email = $"{rut}@example.test", password, userType = "Estudiante" }, JsonOptions, Ct), HttpStatusCode.OK);
         UserMessage(registered);
         var id = registered.GetProperty("user").GetProperty("id").GetInt32();
-        Auth(await Expect(await anonymous.PostAsJsonAsync("/api/auth/login", new { rut, password }, JsonOptions, Ct), HttpStatusCode.OK));
-        var users = await Expect(await admin.GetAsync("/api/auth/users", Ct), HttpStatusCode.OK);
+        Auth(await Expect(await anonymous.PostAsJsonAsync("/api/v1/auth/login", new { rut, password }, JsonOptions, Ct), HttpStatusCode.OK));
+        var users = await Expect(await admin.GetAsync("/api/v1/auth/users", Ct), HttpStatusCode.OK);
         Array(users, UserShape);
         UserMessage(await Expect(await Status(admin, id, false), HttpStatusCode.OK));
         UserMessage(await Expect(await Status(admin, id, true), HttpStatusCode.OK));
-        Shape(await Expect(await anonymous.PostAsJsonAsync("/api/auth/login", new { rut = "invalid", password }, JsonOptions, Ct), HttpStatusCode.BadRequest), "message:s");
-        Shape(await Expect(await anonymous.PostAsJsonAsync("/api/auth/login", new { rut, password = "incorrect" }, JsonOptions, Ct), HttpStatusCode.Unauthorized), "message:s");
+        Shape(await Expect(await anonymous.PostAsJsonAsync("/api/v1/auth/login", new { rut = "invalid", password }, JsonOptions, Ct), HttpStatusCode.BadRequest), "message:s");
+        Shape(await Expect(await anonymous.PostAsJsonAsync("/api/v1/auth/login", new { rut, password = "incorrect" }, JsonOptions, Ct), HttpStatusCode.Unauthorized), "message:s");
         Shape(await Expect(await Status(admin, -1, false), HttpStatusCode.NotFound), "message:s");
     }
 
     [Fact]
     public async Task ReservationsSchedulesQrAndAttendance_HaveExactPropertiesAndTypes()
     {
-        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 17, 11, 0, 0, TimeSpan.Zero));
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 17, 10, 59, 0, TimeSpan.Zero));
         using var host = factory.WithClock(clock);
         var user = await factory.CreateClientUserAsync();
         using var realClient = user.Client;
@@ -49,14 +49,20 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         client.DefaultRequestHeaders.Authorization = realClient.DefaultRequestHeaders.Authorization;
         using var admin = host.CreateClient();
         admin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
-        var slot = await factory.CreateSlotAsync("Martes", "08:00", "09:30");
-        var created = await Expect(await Reserve(client, slot), HttpStatusCode.OK);
+        var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(8, 0), new TimeOnly(9, 30));
+        var created = await Expect(await Reserve(client, slot.Id, new DateOnly(2026, 11, 17)), HttpStatusCode.OK);
         ReservationMessage(created);
+        var reservation = created.GetProperty("reservation");
+        Assert.Equal(slot.Id, reservation.GetProperty("scheduleSlotId").GetInt32());
+        Assert.Equal("2026-11-17", reservation.GetProperty("date").GetString());
+        Assert.Equal("Martes", reservation.GetProperty("day").GetString());
+        Assert.Equal("08:00", reservation.GetProperty("startTime").GetString());
+        Assert.Equal("09:30", reservation.GetProperty("endTime").GetString());
         var id = created.GetProperty("reservation").GetProperty("id").GetInt32();
-        Array(await Expect(await admin.GetAsync("/api/reservations", Ct), HttpStatusCode.OK), ReservationShape);
-        Array(await Expect(await client.GetAsync($"/api/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK), ReservationShape);
-        Array(await Expect(await client.GetAsync("/api/schedules", Ct), HttpStatusCode.OK), "id:n day:s startTime:s endTime:s zone:s capacity:n reservedCount:n");
-        var qr = await Expect(await client.GetAsync("/api/qr/my-code", Ct), HttpStatusCode.OK);
+        Array(await Expect(await admin.GetAsync("/api/v1/reservations", Ct), HttpStatusCode.OK), ReservationShape);
+        Array(await Expect(await client.GetAsync($"/api/v1/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK), ReservationShape);
+        Array(await Expect(await client.GetAsync("/api/v1/schedules", Ct), HttpStatusCode.OK), "id:n day:s startTime:s endTime:s zone:s capacity:n reservedCount:n date:s");
+        var qr = await Expect(await client.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.OK);
         Shape(qr, "rut:s name:s date:s token:s validFrom:s validUntil:s");
         var token = qr.GetProperty("token").GetString()!;
         var entry = await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.OK);
@@ -68,26 +74,29 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         AttendanceMessage(exit);
         Assert.Equal(JsonValueKind.String, exit.GetProperty("attendance").GetProperty("exitTime").ValueKind);
         Assert.Equal(JsonValueKind.String, exit.GetProperty("attendance").GetProperty("exitAdminRut").ValueKind);
-        ReservationMessage(await Expect(await client.DeleteAsync($"/api/reservations/{id}", Ct), HttpStatusCode.OK));
+        var futureSlot = await factory.CreateSlotAsync(DayOfWeek.Wednesday, new TimeOnly(8, 0), new TimeOnly(9, 30));
+        var futureId = (await Reservation(client, futureSlot.Id, new DateOnly(2026, 11, 18))).GetProperty("id").GetInt32();
+        ReservationMessage(await Expect(await client.DeleteAsync($"/api/v1/reservations/{futureId}", Ct), HttpStatusCode.OK));
+        await Expect(await client.DeleteAsync($"/api/v1/reservations/{id}", Ct), HttpStatusCode.BadRequest, "Solo se pueden cancelar reservas activas.");
     }
 
     [Fact]
     public async Task MiddlewareUnauthorizedAndForbidden_RemainBodyless()
     {
         using var anonymous = factory.CreateClient();
-        using var unauthorized = await anonymous.GetAsync("/api/schedules", Ct);
+        using var unauthorized = await anonymous.GetAsync("/api/v1/schedules", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
         Assert.Empty(await unauthorized.Content.ReadAsByteArrayAsync(Ct));
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
-        using var forbidden = await client.GetAsync("/api/auth/users", Ct);
+        using var forbidden = await client.GetAsync("/api/v1/auth/users", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
         Assert.Empty(await forbidden.Content.ReadAsByteArrayAsync(Ct));
     }
 
     private static void Auth(JsonElement json)
     {
-        Shape(json, "message:s token:s user:o");
+        Shape(json, "message:s user:o expiresAt:s");
         Shape(json.GetProperty("user"), UserShape);
     }
 

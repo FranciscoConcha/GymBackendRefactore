@@ -14,3 +14,5 @@ appsettings.Local.json
 .DS_Store
 .idea/
 .vscode/
+
+TestResults/
