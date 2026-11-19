@@ -17,6 +17,8 @@ public class User
 
     public string PasswordHash { get; set; } = string.Empty;
 
+    public AccountStatus AccountStatus { get; set; } = AccountStatus.Activa;
+
     public bool MustChangePassword { get; set; }
     public int SessionVersion { get; set; }
 

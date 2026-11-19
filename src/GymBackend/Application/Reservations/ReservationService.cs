@@ -63,14 +63,13 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
         var today = DateOnly.FromDateTime(now.DateTime);
         if (request.Date < today || (request.Date == today && TimeOnly.FromDateTime(now.DateTime) >= schedule.StartTime))
             return ServiceError.Validation("El bloque ya comenzó o la fecha ya pasó.");
-        if (request.Date > BookingWindow.LastAllowedDate(today, options.Value.MaxDaysAhead, options.Value.HorizonUnit))
-            return ServiceError.Validation("La fecha excede el plazo máximo de reserva.");
         var user = await context.Users.FindAsync(new object[] { userId }, ct);
-
         if (user is null)
-        {
             return ServiceError.Unauthorized("La sesión no corresponde a un usuario válido.");
-        }
+        var maxDaysAhead = user.Category is { } category && options.Value.CategoryMaxDaysAhead.TryGetValue(category, out var days)
+            ? days : options.Value.MaxDaysAhead;
+        if (request.Date > BookingWindow.LastAllowedDate(today, maxDaysAhead, options.Value.HorizonUnit))
+            return ServiceError.Validation("La fecha excede el plazo máximo de reserva.");
 
         var reservedCount = await context.Reservations.CountAsync(reservation =>
             reservation.ScheduleSlotId == schedule.Id && reservation.Date == request.Date &&

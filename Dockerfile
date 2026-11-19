@@ -10,6 +10,8 @@ WORKDIR /app
 COPY --from=build /app/publish ./
 ENV ASPNETCORE_URLS=http://+:8080
 ENV TZ=America/Santiago
+# Carpeta de correos de desarrollo (Email:Mode=Pickup); el volumen hereda este propietario al crearse.
+RUN mkdir -p /app/mail && chown $APP_UID /app/mail
 USER $APP_UID
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "GymBackend.dll"]

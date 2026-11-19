@@ -109,6 +109,45 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }
     }
 
+    public async Task<(HttpClient Client, int UserId, string Rut, string Username, string Password)> CreateDedicatedAdminClientAsync(
+        WebApplicationFactory<Program>? host = null)
+    {
+        var rut = TestData.NextRut();
+        var username = $"admin-{Guid.NewGuid():N}";
+        var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        var userId = await WithDbAsync(async db =>
+        {
+            var user = new User
+            {
+                Rut = rut,
+                Username = username,
+                Email = $"{rut}@example.test",
+                FirstName = "Dedicated",
+                LastName = "Admin",
+                Role = Roles.Admin,
+                PasswordHash = new GymBackend.Application.Auth.Pbkdf2PasswordHasher().Hash(password),
+                CreatedAt = Services.GetRequiredService<GymBackend.Time.IGymClock>().UtcNow,
+                UpdatedAt = Services.GetRequiredService<GymBackend.Time.IGymClock>().UtcNow,
+            };
+            db.Users.Add(user);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return user.Id;
+        });
+        var client = (host ?? this).CreateClient();
+        client.BaseAddress = new Uri("https://localhost/");
+        client.DefaultRequestHeaders.Remove("X-Gym-Csrf");
+        client.DefaultRequestHeaders.Add("X-Gym-Csrf", "1");
+        try
+        {
+            using var response = await client.PostAsJsonAsync("/api/v1/auth/admin-login", new { username, password },
+                JsonOptions, TestContext.Current.CancellationToken);
+            _ = await ReadAuthAsync(response);
+            SetToken(client, ReadSessionToken(response));
+            return (client, userId, rut, username, password);
+        }
+        catch { client.Dispose(); throw; }
+    }
+
     public async Task<HttpClient> CreateAdminClientAsync()
     {
         var client = CreateClient();

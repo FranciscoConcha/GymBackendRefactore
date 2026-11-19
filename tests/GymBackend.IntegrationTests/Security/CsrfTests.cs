@@ -19,7 +19,8 @@ public sealed class CsrfTests(GymApiFactory factory)
     [InlineData("DELETE")]
     public async Task UnsafeCookieRequests_RequireHeader(string method)
     {
-        using var client = await factory.CreateAdminClientAsync();
+        var admin = await factory.CreateDedicatedAdminClientAsync();
+        using var client = admin.Client;
         client.DefaultRequestHeaders.Authorization = null;
         client.DefaultRequestHeaders.Remove(CsrfProtectionMiddleware.HeaderName);
         using var request = new HttpRequestMessage(new HttpMethod(method), "/api/v1/auth/logout");
@@ -48,13 +49,9 @@ public sealed class CsrfTests(GymApiFactory factory)
     {
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, configuration) =>
             configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Cors:AllowedOrigins:0"] = AllowedOrigin })));
-        using var client = host.CreateClient();
-        // Explicit defaults also cover derived factory client configuration.
-        client.BaseAddress = new Uri("https://localhost/");
-        client.DefaultRequestHeaders.Remove(CsrfProtectionMiddleware.HeaderName);
-        client.DefaultRequestHeaders.Add(CsrfProtectionMiddleware.HeaderName, "1");
-        using var login = await client.PostAsJsonAsync("/api/v1/auth/admin-login", new { username = factory.AdminUsername, password = factory.AdminPassword }, JsonOptions, Ct);
-        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var admin = await factory.CreateDedicatedAdminClientAsync(host);
+        using var client = admin.Client;
+        client.DefaultRequestHeaders.Authorization = null;
         if (origin is not null) client.DefaultRequestHeaders.Add("Origin", origin);
         using var response = await client.PostAsync("/api/v1/auth/logout", null, Ct);
         Assert.Equal(accepted ? HttpStatusCode.OK : HttpStatusCode.Forbidden, response.StatusCode);
@@ -84,7 +81,8 @@ public sealed class CsrfTests(GymApiFactory factory)
     [Fact]
     public async Task BearerRequest_DoesNotRequireCsrfHeader()
     {
-        using var client = await factory.CreateAdminClientAsync();
+        var admin = await factory.CreateDedicatedAdminClientAsync();
+        using var client = admin.Client;
         client.DefaultRequestHeaders.Remove(CsrfProtectionMiddleware.HeaderName);
         using var response = await client.PostAsync("/api/v1/auth/logout", null, Ct);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

@@ -26,8 +26,8 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             .Where(candidate => candidate.Rut == rut)
             .OrderBy(candidate => candidate.Id)
             .ToListAsync(ct);
-        if (candidates.Count == 0) passwordHasher.VerifyDummy(request.Password);
-        var match = candidates.Select(candidate => (User: candidate, Check: passwordHasher.Verify(request.Password, candidate.PasswordHash)))
+        if (!candidates.Any(candidate => candidate.AccountStatus == AccountStatus.Activa)) passwordHasher.VerifyDummy(request.Password);
+        var match = candidates.Where(candidate => candidate.AccountStatus == AccountStatus.Activa).Select(candidate => (User: candidate, Check: passwordHasher.Verify(request.Password, candidate.PasswordHash)))
             .FirstOrDefault(candidate => candidate.Check != PasswordCheck.Failed);
         var user = match.User;
 
@@ -54,8 +54,8 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             .Where(candidate => candidate.Username.ToLower() == username && (candidate.Role == Roles.Admin || candidate.Role == Roles.Recepcionista))
             .OrderBy(candidate => candidate.Id)
             .ToListAsync(ct);
-        if (candidates.Count == 0) passwordHasher.VerifyDummy(request.Password);
-        var match = candidates.Select(candidate => (User: candidate, Check: passwordHasher.Verify(request.Password, candidate.PasswordHash)))
+        if (!candidates.Any(candidate => candidate.AccountStatus == AccountStatus.Activa)) passwordHasher.VerifyDummy(request.Password);
+        var match = candidates.Where(candidate => candidate.AccountStatus == AccountStatus.Activa).Select(candidate => (User: candidate, Check: passwordHasher.Verify(request.Password, candidate.PasswordHash)))
             .FirstOrDefault(candidate => candidate.Check != PasswordCheck.Failed);
         var admin = match.User;
 
@@ -102,6 +102,7 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
         var invalid = ValidateNewPassword(request.TemporaryPassword);
         if (invalid is not null) return ServiceError.Validation(invalid);
         user.PasswordHash = passwordHasher.Hash(request.TemporaryPassword);
+        user.AccountStatus = AccountStatus.Activa;
         user.MustChangePassword = true;
         user.SessionVersion++;
         user.UpdatedAt = clock.UtcNow;

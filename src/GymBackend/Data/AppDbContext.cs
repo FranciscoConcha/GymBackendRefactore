@@ -30,6 +30,9 @@ public class AppDbContext : DbContext
         return count;
     }
 
+    public DbSet<AccountToken> AccountTokens => Set<AccountToken>();
+    public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();
+
     public DbSet<User> Users => Set<User>();
 
     public DbSet<Reservation> Reservations => Set<Reservation>();

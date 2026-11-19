@@ -8,7 +8,7 @@ using GymBackend.Time;
 using Microsoft.EntityFrameworkCore;
 namespace GymBackend.Application.Auth;
 
-public sealed class UserService(AppDbContext context, IUserPasswordHasher passwordHasher, IGymClock clock, IAuditLog audit) : IUserService
+public sealed class UserService(AppDbContext context, IUserPasswordHasher passwordHasher, IGymClock clock, IAuditLog audit, AccountService accounts) : IUserService
 {
     public async Task<ServiceResult<UserMessageResponse>> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
     {
@@ -19,10 +19,12 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         var lastName = request.LastName.Trim();
         var email = request.Email.Trim().ToLowerInvariant();
         var username = request.Username?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (firstName.Length == 0 || lastName.Length == 0 || email.Length == 0 || string.IsNullOrWhiteSpace(request.Password))
+        if (firstName.Length == 0 || lastName.Length == 0 || email.Length == 0 || request.Password is not null && string.IsNullOrWhiteSpace(request.Password))
             return ServiceError.Validation("Todos los campos son obligatorios.");
         var invalid = ValidateNamesAndEmail(firstName, lastName, email);
         if (invalid is not null) return ServiceError.Validation(invalid);
+        if (request.Password is not null && request.Password.Length is < 8 or > 128)
+            return ServiceError.Validation("La contraseña debe tener entre 8 y 128 caracteres.");
         var branch = request.SportBranchId is { } branchId ? await context.SportBranches.FindAsync([branchId], ct) : null;
         invalid = IdentityRules.Validate(request.Role, request.Category, request.SportBranchId, branch?.Enabled == true, username);
         if (invalid is not null) return ServiceError.Validation(invalid);
@@ -40,8 +42,9 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
             LastName = lastName,
             Email = email,
             Username = request.Role == Roles.Usuario ? string.Empty : username,
-            PasswordHash = passwordHasher.Hash(request.Password),
-            MustChangePassword = true,
+            PasswordHash = request.Password is null ? string.Empty : passwordHasher.Hash(request.Password),
+            AccountStatus = request.Password is null ? AccountStatus.Pendiente : AccountStatus.Activa,
+            MustChangePassword = request.Password is not null,
             Role = request.Role,
             Category = request.Category,
             SportBranch = branch,
@@ -50,6 +53,7 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         };
         context.Users.Add(user);
         audit.Add("user.created", user);
+        if (user.AccountStatus == AccountStatus.Pendiente) accounts.EnqueueInvitation(user);
         return await SaveUserAsync(user, "Usuario registrado correctamente.", ct);
     }
 

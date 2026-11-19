@@ -13,8 +13,34 @@ namespace GymBackend.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.V1)]
-public class AuthController(IAuthService authService, IUserService userService) : ControllerBase
+public class AuthController(IAuthService authService, IUserService userService, AccountService accounts) : ControllerBase
 {
+    [HttpPost("activate")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
+    public async Task<IActionResult> Activate(AccountPasswordRequest request, CancellationToken ct = default) =>
+        this.ToActionResult(await accounts.ActivateAsync(request, ct));
+
+    [HttpPost("password-resets")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
+    public async Task<IActionResult> RequestReset(RequestPasswordResetRequest request, CancellationToken ct = default)
+    {
+        await accounts.RequestResetAsync(request.Email, ct);
+        return Accepted(new MessageResponse(AccountService.ResetRequestedMessage));
+    }
+
+    [HttpPost("password-resets/confirm")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
+    public async Task<IActionResult> ConfirmReset(AccountPasswordRequest request, CancellationToken ct = default) =>
+        this.ToActionResult(await accounts.ConfirmResetAsync(request, ct));
+
+    [HttpPost("users/{id}/invitation")]
+    [Authorize(Roles = Roles.Admin)]
+    public async Task<IActionResult> Invitation(int id, CancellationToken ct = default) =>
+        this.ToActionResult(await accounts.InviteAsync(id, ct));
+
     [HttpPost("register")]
     [Authorize(Roles = Roles.Admin)]
     [ProducesResponseType<UserMessageResponse>(StatusCodes.Status200OK)]
