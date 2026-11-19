@@ -1,6 +1,4 @@
 import {
-  lazy,
-  Suspense,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -9,7 +7,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
@@ -18,6 +15,7 @@ import {
   ChevronRight,
   Clock3,
   Dumbbell,
+  FileSpreadsheet,
   History,
   LayoutDashboard,
   LogOut,
@@ -27,7 +25,9 @@ import {
   QrCode,
   ScanLine,
   Search,
+  ShieldCheck,
   Users,
+  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -35,29 +35,40 @@ import { QRCodeSVG } from "qrcode.react";
 import { useLocation, useNavigate } from "react-router-dom";
 import AdminDashboard from "./pages/AdminDashboard";
 import StudentDashboard from "./pages/StudentDashboard";
+import ReceptionDashboard from "./pages/ReceptionDashboard";
+import GroupBooking from "./pages/GroupBooking";
+import ExcelPanel from "./pages/ExcelPanel";
+import AccountPage from "./pages/AccountPage";
+import AccessPanel from "./pages/AccessPanel";
 import { Badge, Button } from "./components/ui";
 import {
+  access,
+  cancel,
+  DEMO_MEMBER,
+  CATEGORIES,
+  categoryPriority,
+  formatRut,
+  isValidRut,
+  normalizeRut,
+  reconcileAttendance,
+  reserveGroup,
   getDays,
+  loadDemo,
   remaining,
+  reserve,
+  validateReservation,
   shortDate,
-  type AppData,
+  slotsFor,
+  slotEnd,
+  STORAGE_KEY,
+  ticket,
+  type DemoState,
   type Member,
   type Reservation,
   type Role,
   type Slot,
-  durationMinutes,
-  hasStarted,
 } from "./domain";
-import {
-  api,
-  ApiError,
-  onUnauthorized,
-  type UserResponse,
-  type QrResponse,
-  type RegisterRequest,
-} from "./api";
 
-const Camera = lazy(() => import("./Camera"));
 const studentNav: [string, string, LucideIcon][] = [
   ["inicio", "Inicio", LayoutDashboard],
   ["horarios", "Reservar", CalendarDays],
@@ -69,11 +80,26 @@ const adminNav: [string, string, LucideIcon][] = [
   ["acceso", "Control de acceso", ScanLine],
   ["usuarios", "Usuarios", Users],
   ["reservas", "Reservas", CalendarDays],
+  ["grupos", "Sesiones por rama", Users],
+  ["archivos", "Excel", FileSpreadsheet],
 ];
+const receptionNav: [string, string, LucideIcon][] = [
+  ["inicio", "Estado actual", Users],
+  ["acceso", "Escanear QR", ScanLine],
+];
+const rolePath = (role: Role | null) =>
+  role === "admin"
+    ? "admin"
+    : role === "reception"
+      ? "recepcion"
+      : "estudiante";
 const statusClass: Record<string, string> = {
-  Reservado: "blue",
-  Asistió: "neutral",
-  Cancelado: "red",
+  Reservada: "blue",
+  "En sala": "green",
+  "Fuera de sala": "blue",
+  Completada: "neutral",
+  Cancelada: "red",
+  "No asistió": "gold",
 };
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -157,24 +183,15 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const segments = location.pathname.split("/").filter(Boolean);
-  const [user, setUser] = useState<UserResponse | null>(null);
-  const role: Role | null = user
-    ? user.role === "Admin"
+  const role: Role | null =
+    segments[0] === "admin"
       ? "admin"
-      : "student"
-    : null;
-  const [restoring, setRestoring] = useState(true);
-  const [loginAdmin, setLoginAdmin] = useState(false);
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [revision, setRevision] = useState(0);
-  const [qr, setQr] = useState<QrResponse | null>(null);
-  const [state, setState] = useState<AppData>({
-    members: [],
-    reservations: [],
-    slots: [],
-  });
+      : segments[0] === "estudiante"
+        ? "student"
+        : segments[0] === "recepcion"
+          ? "reception"
+          : null;
+  const [state, setState] = useState(loadDemo);
   const page = segments[1] || "inicio";
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(
@@ -187,29 +204,63 @@ export default function App() {
   const [selected, setSelected] = useState<Slot | null>(null);
   const [toCancel, setToCancel] = useState<Reservation | null>(null);
   const [showMember, setShowMember] = useState(false);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [loginMemberId, setLoginMemberId] = useState(
+    () =>
+      state.members.find((value) => value.category === "Deportista")?.id ??
+      DEMO_MEMBER,
+  );
   const [scheduleDate, setScheduleDate] = useState(() => getDays()[0]);
   const heading = useRef<HTMLHeadingElement>(null);
-  const member: Member = {
-    id: user?.id ?? 0,
-    name: user?.name ?? "",
-    email: user?.email ?? "",
-    category: user?.userType ?? "",
-    enabled: user?.enabled ?? false,
-  };
-  const nav = role === "admin" ? adminNav : studentNav;
+  const requestedMemberId =
+    new URLSearchParams(location.search).get("usuario") ?? DEMO_MEMBER;
+  const member =
+    state.members.find((m) => m.id === requestedMemberId) ??
+    state.members.find((m) => m.id === DEMO_MEMBER)!;
+  const nav =
+    role === "admin"
+      ? adminNav
+      : role === "reception"
+        ? receptionNav
+        : studentNav;
+  const roleName =
+    role === "admin"
+      ? "Administrador"
+      : role === "reception"
+        ? "Recepcionista"
+        : member.name;
+  const initials =
+    role === "admin"
+      ? "AD"
+      : role === "reception"
+        ? "RC"
+        : member.name
+            .split(" ")
+            .map((value) => value[0])
+            .slice(0, 2)
+            .join("");
   const currentPage =
-    nav.some((n) => n[0] === page) || page === "perfil" ? page : "inicio";
+    nav.some((n) => n[0] === page) ||
+    (page === "perfil" && role !== "reception")
+      ? page
+      : "inicio";
   const myReservations = state.reservations.filter(
-    (r) => r.memberId === user?.id,
+    (r) => r.memberId === member.id,
   );
   const upcoming = [...myReservations]
-    .filter((r) => r.status === "Reservado")
+    .filter((r) => ["Reservada", "En sala", "Fuera de sala"].includes(r.status))
     .sort((a, b) =>
       `${a.slot.date}${a.slot.start}`.localeCompare(
         `${b.slot.date}${b.slot.start}`,
       ),
     );
 
+  useEffect(() => {
+    const refresh = () => setState((current) => reconcileAttendance(current));
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => {
     const media = matchMedia("(max-width: 760px)");
     const sync = () => {
@@ -252,98 +303,21 @@ export default function App() {
   useLayoutEffect(() => {
     heading.current?.focus();
   }, [currentPage, role]);
-  useEffect(
-    () =>
-      onUnauthorized(() => {
-        setUser(null);
-        setState({ members: [], reservations: [], slots: [] });
-        setQr(null);
-        setSelected(null);
-        setToCancel(null);
-        setShowMember(false);
-        setMenu(false);
-        notify("Tu sesión ha expirado. Vuelve a iniciar sesión.", true);
-        navigate("/", { replace: true });
-      }),
-    [navigate],
-  );
   useEffect(() => {
-    api
-      .me()
-      .then(setUser)
-      .catch((error) => {
-        if (!(error instanceof ApiError && error.status === 401))
-          notify(error.message, true);
-      })
-      .finally(() => setRestoring(false));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      setFailure(true);
+      setNotice("No se pudieron guardar los cambios en este navegador.");
+    }
+  }, [state]);
+  useEffect(() => {
+    const sync = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY) setState(loadDemo());
+    };
+    addEventListener("storage", sync);
+    return () => removeEventListener("storage", sync);
   }, []);
-  useEffect(() => {
-    if (!user) return;
-    const portal = user.role === "Admin" ? "admin" : "estudiante";
-    if (segments[0] !== portal)
-      navigate(`/${portal}/inicio`, { replace: true });
-  }, [user, location.pathname, navigate]);
-  useEffect(() => {
-    if (!user) return;
-    let active = true;
-    Promise.all([
-      api.reservations(user),
-      user.role === "Admin" ? api.users() : Promise.resolve([user]),
-      api.schedules(scheduleDate),
-    ])
-      .then(([reservations, users, slots]) => {
-        if (active)
-          setState({
-            members: users.map((u) => ({ ...u, category: u.userType })),
-            slots: slots.map((v) => ({
-              id: v.id,
-              date: v.date,
-              start: v.startTime,
-              end: v.endTime,
-              capacity: v.capacity,
-              occupied: v.reservedCount,
-              zone: v.zone,
-            })),
-            reservations: reservations.map((r) => ({
-              id: r.id,
-              memberId: r.userId,
-              userName: r.userName,
-              status: r.status,
-              slot: {
-                id: r.scheduleSlotId,
-                date: r.date,
-                start: r.startTime,
-                end: r.endTime,
-                capacity: r.capacity,
-                occupied: 0,
-                zone: r.zone,
-              },
-            })),
-          });
-      })
-      .catch((error) => {
-        if (active) notify(error.message, true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [user, revision, scheduleDate, location.pathname]);
-  useEffect(() => {
-    setQr(null);
-    if (!user || currentPage !== "qr") return;
-    let active = true;
-    api
-      .qr()
-      .then((value) => {
-        if (active) setQr(value);
-      })
-      .catch((error) => {
-        if (active) notify(error.message, true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [user, currentPage]);
   useEffect(() => {
     if (!notice) return;
     const timeout = setTimeout(() => setNotice(""), 6500);
@@ -351,7 +325,9 @@ export default function App() {
   }, [notice]);
 
   function go(destination: string) {
-    navigate(`/${role === "admin" ? "admin" : "estudiante"}/${destination}`);
+    navigate(
+      `/${rolePath(role)}/${destination}${role === "student" && member.id !== DEMO_MEMBER ? `?usuario=${encodeURIComponent(member.id)}` : ""}`,
+    );
     setMenu(false);
   }
   function closeMenu() {
@@ -362,15 +338,12 @@ export default function App() {
     setFailure(error);
     setNotice(text);
   }
-  async function update(
-    operation: () => Promise<unknown>,
+  function update(
+    operation: (value: DemoState) => DemoState,
     success: string,
-  ): Promise<boolean> {
-    if (busy) return false;
-    setBusy(true);
+  ): boolean {
     try {
-      await operation();
-      setRevision((v) => v + 1);
+      setState(operation(reconcileAttendance(state)));
       notify(success);
       return true;
     } catch (error) {
@@ -381,35 +354,34 @@ export default function App() {
         true,
       );
       return false;
-    } finally {
-      setBusy(false);
     }
   }
-  async function login(e: FormEvent) {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    try {
-      const result = await api.login(loginAdmin, identifier, password);
-      setUser(await api.me());
-      setNotice(result.message);
-      setIdentifier("");
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "No se pudo iniciar sesión.",
-        true,
-      );
-    } finally {
-      setPassword("");
-      setBusy(false);
-    }
-  }
-  if (restoring)
-    return (
-      <main>
-        <p role="status">Restaurando sesión…</p>
-      </main>
+  function enter(nextRole: Role) {
+    navigate(
+      `/${rolePath(nextRole)}/inicio${nextRole === "student" && loginMemberId !== DEMO_MEMBER ? `?usuario=${encodeURIComponent(loginMemberId)}` : ""}`,
     );
+  }
+
+  if (
+    [
+      "recuperar-contrasena",
+      "activar-cuenta",
+      "restablecer-contrasena",
+    ].includes(segments[0])
+  )
+    return (
+      <AccountPage
+        mode={
+          segments[0] === "recuperar-contrasena"
+            ? "recover"
+            : segments[0] === "activar-cuenta"
+              ? "activate"
+              : "reset"
+        }
+        onBack={() => navigate("/")}
+      />
+    );
+
   if (!role)
     return (
       <div className="login-page">
@@ -434,44 +406,65 @@ export default function App() {
           <div className="login-form">
             <span className="eyebrow">UNIVERSIDAD CATÓLICA DEL NORTE</span>
             <h2>Accede a tu espacio</h2>
-            <form onSubmit={login} className="member-form">
-              <label className="field">
-                Portal
-                <select
-                  value={loginAdmin ? "admin" : "user"}
-                  onChange={(e) => {
-                    setLoginAdmin(e.target.value === "admin");
-                    setPassword("");
-                  }}
-                >
-                  <option value="user">Usuario</option>
-                  <option value="admin">Administración</option>
-                </select>
-              </label>
-              <label className="field">
-                {loginAdmin ? "Usuario" : "RUT"}
-                <input
-                  required
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  autoComplete="username"
-                />
-              </label>
-              <label className="field">
-                Contraseña
-                <input
-                  required
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </label>
-              {notice && <p role="alert">{notice}</p>}
-              <button className="button" disabled={busy} type="submit">
-                Ingresar
-              </button>
-            </form>
+            <p className="intro">Selecciona tu portal.</p>
+            <label className="field login-member">
+              Perfil de usuario
+              <select
+                value={loginMemberId}
+                onChange={(event) => setLoginMemberId(event.target.value)}
+              >
+                {[...state.members]
+                  .sort(
+                    (a, b) =>
+                      categoryPriority(a.category) -
+                      categoryPriority(b.category),
+                  )
+                  .map((value) => (
+                    <option value={value.id} key={value.id}>
+                      {value.name} · {value.branch ?? value.category}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <button className="profile-option" onClick={() => enter("student")}>
+              <span className="option-icon">
+                <UserRound />
+              </span>
+              <span>
+                <strong>Usuario / Estudiante</strong>
+                <small>Reservas y código de acceso</small>
+              </span>
+              <ArrowRight size={20} />
+            </button>
+            <button
+              className="profile-option"
+              onClick={() => enter("reception")}
+            >
+              <span className="option-icon">
+                <ScanLine />
+              </span>
+              <span>
+                <strong>Recepcionista</strong>
+                <small>Escaneo y estado actual</small>
+              </span>
+              <ArrowRight size={20} />
+            </button>
+            <button className="profile-option" onClick={() => enter("admin")}>
+              <span className="option-icon">
+                <ShieldCheck />
+              </span>
+              <span>
+                <strong>Administrador</strong>
+                <small>Usuarios y control de acceso</small>
+              </span>
+              <ArrowRight size={20} />
+            </button>
+            <button
+              className="text-button"
+              onClick={() => navigate("/recuperar-contrasena")}
+            >
+              Olvidé mi contraseña
+            </button>
           </div>
           <span className="login-footer">Deportes UCN · Sala de pesas</span>
         </main>
@@ -514,13 +507,17 @@ export default function App() {
         </button>
         <Brand inverse />
         <div className="sidebar-section">
-          {role === "admin" ? "ADMINISTRACIÓN" : "MI ESPACIO"}
+          {role === "admin"
+            ? "ADMINISTRACIÓN"
+            : role === "reception"
+              ? "RECEPCIÓN"
+              : "MI ESPACIO"}
         </div>
         <nav aria-label="Navegación principal">
           {nav.map(([id, label, Icon]) => (
             <a
               key={id}
-              href={`/${role === "admin" ? "admin" : "estudiante"}/${id}`}
+              href={`/${rolePath(role)}/${id}${role === "student" && member.id !== DEMO_MEMBER ? `?usuario=${encodeURIComponent(member.id)}` : ""}`}
               onClick={(event) => {
                 event.preventDefault();
                 go(id);
@@ -535,27 +532,26 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button className="sidebar-profile" onClick={() => go("perfil")}>
-            <span className="avatar">
-              {member.name.slice(0, 2).toUpperCase()}
-            </span>
+          <button
+            className="sidebar-profile"
+            onClick={() => go(role === "reception" ? "inicio" : "perfil")}
+          >
+            <span className="avatar">{initials}</span>
             <span>
-              <strong>{role === "admin" ? "Recepción" : member.name}</strong>
+              <strong>{roleName}</strong>
               <small>
-                {role === "admin" ? "Administrador" : member.category}
+                {role === "student"
+                  ? (member.branch ?? member.category)
+                  : "Deportes UCN"}
               </small>
             </span>
             <ChevronRight size={16} />
           </button>
           <button
             className="logout"
-            onClick={async () => {
-              if (await update(() => api.logout(), "Sesión cerrada.")) {
-                setUser(null);
-                setState({ members: [], reservations: [], slots: [] });
-                setQr(null);
-                navigate("/");
-              }
+            onClick={() => {
+              navigate("/");
+              setMenu(false);
             }}
           >
             <LogOut size={17} aria-hidden="true" />
@@ -584,14 +580,18 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <span className="portal-label">
-              {role === "admin" ? "Administración" : "Portal estudiante"}
+              {role === "admin"
+                ? "Administración"
+                : role === "reception"
+                  ? "Recepción"
+                  : "Portal usuario"}
             </span>
             <button
               className="avatar small-avatar"
-              aria-label={`${member.name.slice(0, 2).toUpperCase()} · Ver perfil`}
-              onClick={() => go("perfil")}
+              aria-label={`${initials} · ${role === "reception" ? "Ver estado actual" : "Ver perfil"}`}
+              onClick={() => go(role === "reception" ? "inicio" : "perfil")}
             >
-              {member.name.slice(0, 2).toUpperCase()}
+              {initials}
             </button>
           </div>
         </header>
@@ -607,13 +607,17 @@ export default function App() {
                 {currentPage === "inicio"
                   ? role === "admin"
                     ? "Panel general"
-                    : `Hola, ${member.name.split(" ")[0]}.`
+                    : role === "reception"
+                      ? "Estado actual de la sala"
+                      : `Hola, ${member.name.split(" ")[0]}.`
                   : {
                       horarios: "Encuentra tu horario.",
                       reservas: role === "admin" ? "Reservas" : "Mis reservas",
                       qr: "Tu acceso a la sala.",
                       acceso: "Control de acceso",
                       usuarios: "Usuarios",
+                      grupos: "Sesiones por rama",
+                      archivos: "Importar y exportar",
                       perfil: "Mi perfil",
                     }[currentPage]}
               </h1>
@@ -621,14 +625,20 @@ export default function App() {
                 {currentPage === "inicio"
                   ? role === "admin"
                     ? "Reservas y asistencia por período."
-                    : "Revisa tus reservas o elige un horario."
+                    : role === "reception"
+                      ? "Escaneo de QR e identificación para el acceso."
+                      : "Revisa tus reservas o elige un horario."
                   : {
                       horarios: "Elige un día y reserva un bloque disponible.",
                       reservas: "Consulta el estado de cada sesión.",
                       qr: "Presenta este código en recepción.",
                       acceso:
-                        "Registra la entrada o salida con el QR personal del día.",
+                        "Registra la entrada o salida con el QR de la reserva.",
                       usuarios: "Gestiona el acceso de la comunidad.",
+                      grupos:
+                        "Reserva cupos para deportistas de una misma rama.",
+                      archivos:
+                        "Archivos Excel de usuarios y registros operativos.",
                       perfil: "Información de tu cuenta.",
                     }[currentPage]}
               </p>
@@ -671,14 +681,38 @@ export default function App() {
               onUsers={() => go("usuarios")}
             />
           )}
+          {currentPage === "inicio" && role === "reception" && (
+            <ReceptionDashboard state={state} onScan={() => go("acceso")} />
+          )}
+          {currentPage === "grupos" && role === "admin" && (
+            <GroupBooking
+              state={state}
+              onReserve={(branch, ids, slot) =>
+                update(
+                  (current) => reserveGroup(current, role, branch, ids, slot),
+                  "Sesión de rama confirmada.",
+                )
+              }
+            />
+          )}
+          {currentPage === "archivos" && role === "admin" && (
+            <ExcelPanel
+              state={state}
+              onImport={(operation) =>
+                update(
+                  operation,
+                  "Importación confirmada. Las cuentas están pendientes de activación.",
+                )
+              }
+            />
+          )}
 
           {currentPage === "horarios" && (
             <Schedule
               state={state}
               onSelect={setSelected}
               initialDate={scheduleDate}
-              onDate={setScheduleDate}
-              member={member}
+              memberId={member.id}
             />
           )}
           {currentPage === "reservas" && (
@@ -692,12 +726,21 @@ export default function App() {
               onReserve={() => go("horarios")}
             />
           )}
-          {currentPage === "qr" && <QrPanel qr={qr} onCopy={notify} />}
+          {currentPage === "qr" && (
+            <QrPanel
+              reservations={upcoming}
+              member={member}
+              onReserve={() => go("horarios")}
+              onCopy={notify}
+            />
+          )}
           {currentPage === "acceso" && (
             <AccessPanel
-              onSubmit={(code, action) =>
+              state={state}
+              role={role}
+              onSubmit={(code, action, document) =>
                 update(
-                  () => api.access(code, action),
+                  (s) => access(s, code, action, new Date(), role, document),
                   action === "entry"
                     ? "Entrada registrada."
                     : "Salida registrada.",
@@ -708,31 +751,50 @@ export default function App() {
           {currentPage === "usuarios" && (
             <Members
               state={state}
-              onToggle={(id) => {
-                const m = state.members.find((v) => v.id === id);
-                if (m)
-                  void update(
-                    () => api.status(id, !m.enabled),
-                    "Estado actualizado.",
-                  );
-              }}
+              onEdit={setEditingMember}
+              onToggle={(id) =>
+                update(
+                  (s) => ({
+                    ...s,
+                    members: s.members.map((m) =>
+                      m.id === id ? { ...m, enabled: !m.enabled } : m,
+                    ),
+                  }),
+                  "Estado actualizado.",
+                )
+              }
             />
           )}
-
           {currentPage === "perfil" && (
             <div className="profile-layout">
               <section className="card profile-card">
-                <span className="avatar profile-avatar">
-                  {member.name.slice(0, 2).toUpperCase()}
-                </span>
-                <h2>{role === "admin" ? "Recepción" : member.name}</h2>
+                <span className="avatar profile-avatar">{initials}</span>
+                <h2>{roleName}</h2>
                 <Badge tone="blue">
                   {role === "admin" ? "Administrador" : member.category}
                 </Badge>
                 <dl>
+                  {role === "student" && (
+                    <>
+                      <div>
+                        <dt>RUT</dt>
+                        <dd>{formatRut(member.rut) || "Pendiente"}</dd>
+                      </div>
+                      {member.branch && (
+                        <div>
+                          <dt>Rama deportiva</dt>
+                          <dd>{member.branch}</dd>
+                        </div>
+                      )}
+                    </>
+                  )}
                   <div>
                     <dt>Correo</dt>
-                    <dd>{member.email}</dd>
+                    <dd>
+                      {role === "admin"
+                        ? "recepcion@example.invalid"
+                        : member.email}
+                    </dd>
                   </div>
                   <div>
                     <dt>Estado</dt>
@@ -787,10 +849,10 @@ export default function App() {
               Volver
             </Button>
             <Button
-              onClick={async () => {
+              onClick={() => {
                 if (
-                  await update(
-                    () => api.reserve(selected.id, selected.date),
+                  update(
+                    (s) => reserve(s, member.id, selected),
                     "Reserva confirmada. Tu QR ya está disponible.",
                   )
                 ) {
@@ -820,13 +882,8 @@ export default function App() {
             </Button>
             <button
               className="button danger"
-              onClick={async () => {
-                if (
-                  await update(
-                    () => api.cancel(toCancel.id),
-                    "Reserva cancelada.",
-                  )
-                )
+              onClick={() => {
+                if (update((s) => cancel(s, toCancel.id), "Reserva cancelada."))
                   setToCancel(null);
               }}
             >
@@ -835,18 +892,119 @@ export default function App() {
           </div>
         </Modal>
       )}
-      {showMember && (
+      {role === "admin" && (showMember || editingMember) && (
         <MemberForm
-          onClose={() => setShowMember(false)}
-          onSave={async (data) => {
-            if (await update(() => api.register(data), "Usuario agregado.")) {
-              setShowMember(false);
-              return "";
-            }
-            return "No se pudo agregar el usuario.";
+          initial={editingMember ?? undefined}
+          onClose={() => {
+            setShowMember(false);
+            setEditingMember(null);
+          }}
+          onSave={(data) => {
+            const email = data.email.trim().toLowerCase();
+            if (
+              state.members.some(
+                (m) =>
+                  m.id !== editingMember?.id && m.email.toLowerCase() === email,
+              )
+            )
+              return "Este correo ya está registrado.";
+            if (
+              state.members.some(
+                (m) =>
+                  m.id !== editingMember?.id &&
+                  normalizeRut(m.rut) === normalizeRut(data.rut),
+              )
+            )
+              return "Este RUT ya está registrado.";
+            update(
+              (s) => ({
+                ...s,
+                members: editingMember
+                  ? s.members.map((value) =>
+                      value.id === editingMember.id
+                        ? { ...value, ...data, email }
+                        : value,
+                    )
+                  : [
+                      ...s.members,
+                      {
+                        ...data,
+                        email,
+                        id: crypto.randomUUID(),
+                        enabled: true,
+                        accountStatus: "Pendiente de activación",
+                      },
+                    ],
+              }),
+              editingMember
+                ? "Usuario actualizado."
+                : "Usuario agregado. Activación pendiente.",
+            );
+            setShowMember(false);
+            setEditingMember(null);
+            return "";
           }}
         />
       )}
+      {role === "student" &&
+        !selected &&
+        !toCancel &&
+        (state.alerts ?? []).some(
+          (alert) => alert.memberId === member.id && !alert.readAt,
+        ) && (
+          <Modal
+            title="Tienes reservas sin asistencia"
+            onClose={() =>
+              setState((current) => ({
+                ...current,
+                alerts: (current.alerts ?? []).map((alert) =>
+                  alert.memberId === member.id && !alert.readAt
+                    ? { ...alert, readAt: new Date().toISOString() }
+                    : alert,
+                ),
+              }))
+            }
+          >
+            <p className="muted">No registramos tu ingreso a estas sesiones:</p>
+            <ul className="attendance-alerts">
+              {(state.alerts ?? [])
+                .filter(
+                  (alert) => alert.memberId === member.id && !alert.readAt,
+                )
+                .map((alert) => {
+                  const reservation = state.reservations.find(
+                    (value) => value.id === alert.reservationId,
+                  );
+                  return (
+                    <li key={alert.id}>
+                      {reservation
+                        ? `${shortDate(reservation.slot.date)} · ${reservation.slot.start} a ${reservation.slot.end}`
+                        : "Sesión finalizada sin ingreso registrado"}
+                    </li>
+                  );
+                })}
+            </ul>
+            <p className="muted">
+              Si necesitas corregir una asistencia, contacta a administración.
+            </p>
+            <div className="modal-actions">
+              <Button
+                onClick={() =>
+                  setState((current) => ({
+                    ...current,
+                    alerts: (current.alerts ?? []).map((alert) =>
+                      alert.memberId === member.id && !alert.readAt
+                        ? { ...alert, readAt: new Date().toISOString() }
+                        : alert,
+                    ),
+                  }))
+                }
+              >
+                Entendido
+              </Button>
+            </div>
+          </Modal>
+        )}
     </div>
   );
 }
@@ -855,19 +1013,29 @@ function Schedule({
   state,
   onSelect,
   initialDate,
-  onDate,
-  member,
+  memberId,
 }: {
-  state: AppData;
+  state: DemoState;
   onSelect: (slot: Slot) => void;
   initialDate: string;
-  onDate: (date: string) => void;
-  member: Member;
+  memberId: string;
 }) {
   const days = getDays();
-  const date = initialDate;
+  const [date, setDate] = useState(initialDate);
+  const profile = state.members.find((value) => value.id === memberId);
   return (
     <>
+      <div className="schedule-profile">
+        <Badge tone="blue">
+          {profile?.category}
+          {profile?.branch ? ` · ${profile.branch}` : ""}
+        </Badge>
+        {profile?.category === "Deportista" ? (
+          <span>Puedes reservar más de un bloque por día.</span>
+        ) : profile?.category === "Estudiante" ? (
+          <span>Máximo una reserva por día.</span>
+        ) : null}
+      </div>
       <div className="schedule-toolbar">
         <div className="schedule-location">
           <MapPin size={18} />
@@ -881,7 +1049,7 @@ function Schedule({
             key={day}
             aria-pressed={date === day}
             className={`date-option ${date === day ? "selected" : ""}`}
-            onClick={() => onDate(day)}
+            onClick={() => setDate(day)}
           >
             <span>{shortDate(day, { weekday: "short" }).replace(".", "")}</span>
             <strong>{shortDate(day, { day: "2-digit" })}</strong>
@@ -897,88 +1065,90 @@ function Schedule({
         </span>
       </div>
       <div className="slots-grid">
-        {state.slots
-          .filter((s) => s.date === date)
-          .map((slot) => {
-            const available = remaining(slot);
-            const started = hasStarted(slot);
-            const mine = state.reservations.some(
-              (r) =>
-                r.memberId === member.id &&
-                r.slot.id === slot.id &&
-                r.slot.date === slot.date &&
-                r.status !== "Cancelado",
-            );
-            return (
-              <article
-                key={slot.id}
-                className={`card slot-card ${!available ? "full" : ""}`}
+        {slotsFor(date).map((slot) => {
+          const available = remaining(slot, state);
+          const mine = state.reservations.some(
+            (r) =>
+              r.memberId === memberId &&
+              r.slot.id === slot.id &&
+              r.status !== "Cancelada",
+          );
+          const ended = slotEnd(slot) <= new Date();
+          let unavailable = "";
+          try {
+            validateReservation(state, memberId, slot);
+          } catch (cause) {
+            unavailable =
+              cause instanceof Error ? cause.message : "No disponible";
+          }
+          return (
+            <article
+              key={slot.id}
+              className={`card slot-card ${!available ? "full" : ""}`}
+            >
+              <div className="slot-top">
+                <span className="slot-icon">
+                  <Dumbbell size={22} />
+                </span>
+                <Badge tone={mine ? "blue" : available ? "green" : "neutral"}>
+                  {mine ? "Tu reserva" : available ? "Disponible" : "Completo"}
+                </Badge>
+              </div>
+              <h3>
+                {slot.start}
+                <span>—</span>
+                {slot.end}
+              </h3>
+              <p className="meta">
+                <Clock3 size={15} />
+                90 min
+                <span className="separator" />
+                <MapPin size={15} />
+                Sala de pesas
+              </p>
+              <div className="capacity-info">
+                <span>
+                  {available
+                    ? `${available} cupos disponibles`
+                    : "Sin cupos disponibles"}
+                </span>
+                <span>
+                  {slot.capacity - available}/{slot.capacity}
+                </span>
+              </div>
+              <div className="capacity-bar">
+                <span
+                  style={{
+                    width: `${((slot.capacity - available) / slot.capacity) * 100}%`,
+                  }}
+                />
+              </div>
+              <Button
+                secondary={available > 0}
+                disabled={!available || mine || !!unavailable}
+                onClick={() => onSelect(slot)}
               >
-                <div className="slot-top">
-                  <span className="slot-icon">
-                    <Dumbbell size={22} />
-                  </span>
-                  <Badge tone={mine ? "blue" : available ? "green" : "neutral"}>
-                    {mine
-                      ? "Tu reserva"
-                      : available
-                        ? "Disponible"
-                        : "Completo"}
-                  </Badge>
-                </div>
-                <h3>
-                  {slot.start}
-                  <span>—</span>
-                  {slot.end}
-                </h3>
-                <p className="meta">
-                  <Clock3 size={15} />
-                  {durationMinutes(slot)} min
-                  <span className="separator" />
-                  <MapPin size={15} />
-                  {slot.zone}
-                </p>
-                <div className="capacity-info">
-                  <span>
-                    {available
-                      ? `${available} cupos disponibles`
-                      : "Sin cupos disponibles"}
-                  </span>
-                  <span>
-                    {slot.capacity - available}/{slot.capacity}
-                  </span>
-                </div>
-                <div className="capacity-bar">
-                  <span
-                    style={{
-                      width: `${slot.capacity > 0 ? ((slot.capacity - available) / slot.capacity) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
-                <Button
-                  secondary={available > 0}
-                  disabled={!available || mine || started || !member.enabled}
-                  onClick={() => onSelect(slot)}
-                >
-                  {mine ? (
-                    <>
-                      <Check size={17} />
-                      Ya reservado
-                    </>
-                  ) : started ? (
-                    "Bloque iniciado"
-                  ) : available ? (
-                    <>
-                      Reservar
-                      <ArrowRight size={17} />
-                    </>
-                  ) : (
-                    "Bloque completo"
-                  )}
-                </Button>
-              </article>
-            );
-          })}
+                {mine ? (
+                  <>
+                    <Check size={17} />
+                    Ya reservado
+                  </>
+                ) : ended ? (
+                  "Sesión finalizada"
+                ) : available && unavailable ? (
+                  "No disponible"
+                ) : available ? (
+                  <>
+                    Reservar
+                    <ArrowRight size={17} />
+                  </>
+                ) : (
+                  "Bloque completo"
+                )}
+              </Button>
+            </article>
+          );
+        })}
       </div>
     </>
   );
@@ -991,7 +1161,7 @@ function ReservationList({
   onCancel,
 }: {
   reservations: Reservation[];
-  state: AppData;
+  state: DemoState;
   admin?: boolean;
   onCancel: (r: Reservation) => void;
 }) {
@@ -1024,9 +1194,60 @@ function ReservationList({
               <span>·</span>
               {r.slot.start} a {r.slot.end}
             </p>
+            {r.entry && (
+              <small>
+                Entrada{" "}
+                {new Date(r.entry).toLocaleTimeString("es-CL", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+                {r.exit &&
+                  ` · Salida ${new Date(r.exit).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}`}
+              </small>
+            )}
+            {r.createdAt && (
+              <small>
+                Reserva realizada:{" "}
+                {new Date(r.createdAt).toLocaleString("es-CL", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}
+              </small>
+            )}
+            {(r.branch || r.groupId) && (
+              <small>
+                {r.branch}
+                {r.groupId ? " · Sesión de rama" : ""}
+              </small>
+            )}
+            {!!r.visits?.length && (
+              <details className="visit-details">
+                <summary>
+                  {r.visits.length}{" "}
+                  {r.visits.length === 1
+                    ? "visita registrada"
+                    : "visitas registradas"}
+                </summary>
+                <ol>
+                  {r.visits.map((visit) => (
+                    <li key={visit.id}>
+                      Entrada{" "}
+                      {new Date(visit.entryAt).toLocaleTimeString("es-CL", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      ·{" "}
+                      {visit.exitAt
+                        ? `Salida ${new Date(visit.exitAt).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}`
+                        : "Dentro de la sala"}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
           </div>
           <Badge tone={statusClass[r.status]}>{r.status}</Badge>
-          {r.status === "Reservado" && (
+          {r.status === "Reservada" && (
             <button
               className="text-button cancel-link"
               onClick={() => onCancel(r)}
@@ -1048,18 +1269,53 @@ function Reservations({
   onReserve,
 }: {
   reservations: Reservation[];
-  state: AppData;
+  state: DemoState;
   admin: boolean;
   onCancel: (r: Reservation) => void;
   onReserve: () => void;
 }) {
   const [filter, setFilter] = useState("Todas");
-  const filters = ["Todas", "Reservado", "Asistió", "Cancelado"];
-  const visible = [...reservations]
+  const [branch, setBranch] = useState("");
+  const branches = [
+    ...new Set(
+      state.members.flatMap((member) => (member.branch ? [member.branch] : [])),
+    ),
+  ].sort();
+  const scoped = reservations.filter(
+    (reservation) =>
+      !branch ||
+      (reservation.branch ??
+        state.members.find((member) => member.id === reservation.memberId)
+          ?.branch) === branch,
+  );
+  const filters = [
+    "Todas",
+    "Reservada",
+    "En sala",
+    "Fuera de sala",
+    "Completada",
+    "Cancelada",
+    "No asistió",
+  ];
+  const visible = [...scoped]
     .reverse()
     .filter((r) => filter === "Todas" || r.status === filter);
   return (
     <>
+      {admin && (
+        <label className="field branch-filter">
+          Rama deportiva
+          <select
+            value={branch}
+            onChange={(event) => setBranch(event.target.value)}
+          >
+            <option value="">Todas las ramas</option>
+            {branches.map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="filter-tabs" aria-label="Estado de reservas">
         {filters.map((f) => (
           <button
@@ -1068,18 +1324,15 @@ function Reservations({
             className={f === filter ? "selected" : ""}
             onClick={() => setFilter(f)}
           >
-            {f === "Reservado"
+            {f === "Reservada"
               ? "Pendientes"
-              : f === "Asistió"
-                ? "Asistencias"
-                : f === "Cancelado"
-                  ? "Cancelados"
+              : f === "Completada"
+                ? "Completadas"
+                : f === "Cancelada"
+                  ? "Canceladas"
                   : f}
             <span>
-              {
-                reservations.filter((r) => f === "Todas" || r.status === f)
-                  .length
-              }
+              {scoped.filter((r) => f === "Todas" || r.status === f).length}
             </span>
           </button>
         ))}
@@ -1115,166 +1368,135 @@ function Reservations({
 }
 
 function QrPanel({
-  qr,
+  reservations,
+  member,
+  onReserve,
   onCopy,
 }: {
-  qr: QrResponse | null;
+  reservations: Reservation[];
+  member: Member;
+  onReserve: () => void;
   onCopy: (text: string, error?: boolean) => void;
 }) {
-  if (!qr)
+  const [selectedId, setSelectedId] = useState("");
+  const reservation =
+    reservations.find((r) => r.id === selectedId) ?? reservations[0];
+  if (!reservation)
     return (
       <section className="card">
-        <p role="status">Código no disponible.</p>
+        <Empty
+          title="Primero, una reserva"
+          action={
+            <Button onClick={onReserve}>
+              Reservar un horario
+              <ArrowRight size={17} />
+            </Button>
+          }
+        >
+          Tu código estará disponible al confirmar un bloque.
+        </Empty>
       </section>
     );
   return (
-    <section className="card qr-card">
-      <Brand />
-      <h2>{qr.name}</h2>
-      <p>QR personal del día {shortDate(qr.date)}</p>
-      <div className="qr-frame">
-        <QRCodeSVG
-          value={qr.token}
-          size={224}
-          marginSize={3}
-          title="Código QR personal del día"
-        />
-      </div>
-      <p>
-        Válido desde {new Date(qr.validFrom).toLocaleString("es-CL")} hasta{" "}
-        {new Date(qr.validUntil).toLocaleString("es-CL")}
-      </p>
-      <button
-        className="text-button"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(qr.token);
-            onCopy("Código copiado.");
-          } catch {
-            onCopy("No pudimos copiar el código.", true);
-          }
-        }}
-      >
-        Copiar código
-      </button>
-      <code className="ticket-code">{qr.token}</code>
-    </section>
-  );
-}
-
-function AccessPanel({
-  onSubmit,
-}: {
-  onSubmit: (code: string, action: "entry" | "exit") => Promise<boolean>;
-}) {
-  const [action, setAction] = useState<"entry" | "exit">("entry");
-  const [code, setCode] = useState("");
-  const [camera, setCamera] = useState(false);
-  const [success, setSuccess] = useState(false);
-  async function submit(value = code) {
-    setSuccess(await onSubmit(value, action));
-  }
-  return (
-    <div className="access-layout">
-      <section className="card scanner-card">
-        <div className="access-tabs">
-          <button
-            aria-pressed={action === "entry"}
-            className={action === "entry" ? "selected" : ""}
-            onClick={() => {
-              setAction("entry");
-              setSuccess(false);
-            }}
-          >
-            <ArrowDownLeft size={19} />
-            Entrada
-          </button>
-          <button
-            aria-pressed={action === "exit"}
-            className={action === "exit" ? "selected" : ""}
-            onClick={() => {
-              setAction("exit");
-              setSuccess(false);
-            }}
-          >
-            <ArrowUpRight size={19} />
-            Salida
-          </button>
+    <div className="qr-layout">
+      <section className="card qr-card">
+        <div className="qr-card-heading">
+          <Brand />
         </div>
-        <div className={`scan-area ${success ? "scan-success" : ""}`}>
-          {camera ? (
-            <Suspense fallback={<p>Abriendo cámara…</p>}>
-              <Camera
-                onRead={(value) => {
-                  setCamera(false);
-                  setCode(value);
-                  submit(value);
-                }}
-              />
-            </Suspense>
-          ) : (
-            <>
-              <span className="scan-corner top-left" />
-              <span className="scan-corner top-right" />
-              <span className="scan-corner bottom-left" />
-              <span className="scan-corner bottom-right" />
-              {success ? (
-                <CheckCircle2 size={64} strokeWidth={1.3} />
-              ) : (
-                <ScanLine size={64} strokeWidth={1.3} />
-              )}
-              <h3>
-                {success
-                  ? `${action === "entry" ? "Entrada" : "Salida"} registrada`
-                  : "Acerca el código QR"}
-              </h3>
-              <p>
-                {success
-                  ? "La API confirmó el registro."
-                  : "Activa la cámara para escanear."}
-              </p>
-            </>
-          )}
+        <div className="qr-person">
+          <h2>{member.name}</h2>
+          <strong className="qr-rut">
+            {formatRut(member.rut) || "RUT pendiente"}
+          </strong>
+          <span>{member.category}</span>
+          {member.branch && <span>{member.branch}</span>}
         </div>
-        <Button
-          secondary
-          onClick={() => {
-            setSuccess(false);
-            setCamera(!camera);
-          }}
-        >
-          {camera ? "Cerrar cámara" : "Activar cámara"}
-        </Button>
-        <div className="or-divider">
-          <span>o ingresa el código</span>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
+        {reservations.length > 1 && (
           <label className="field">
-            Código personal del día
-            <input
-              value={code}
-              onChange={(e) => {
-                setCode(e.target.value);
-                setSuccess(false);
-              }}
-              placeholder="UCN:…"
-              required
-            />
+            Reserva
+            <select
+              value={reservation.id}
+              onChange={(e) => setSelectedId(e.target.value)}
+            >
+              {reservations.map((r) => (
+                <option value={r.id} key={r.id}>
+                  {shortDate(r.slot.date)} · {r.slot.start}
+                </option>
+              ))}
+            </select>
           </label>
-          <button className="button" type="submit">
-            Registrar {action === "entry" ? "entrada" : "salida"}
-            <ArrowRight size={17} />
-          </button>
-        </form>
+        )}
+        <div className="qr-frame">
+          <QRCodeSVG
+            value={ticket(reservation.id)}
+            size={224}
+            level="M"
+            marginSize={3}
+            title="Código QR de la reserva"
+          />
+        </div>
+        <Badge tone={statusClass[reservation.status]}>
+          {reservation.status}
+        </Badge>
+        <div className="qr-slot">
+          <strong className="capitalize">
+            {shortDate(reservation.slot.date)}
+          </strong>
+          <span>
+            {reservation.slot.start} a {reservation.slot.end}
+          </span>
+          <span>Sala de pesas</span>
+        </div>
+        <button
+          className="text-button"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(ticket(reservation.id));
+              onCopy("Código copiado.");
+            } catch {
+              onCopy(
+                "No pudimos copiar el código. Puedes seleccionarlo debajo.",
+                true,
+              );
+            }
+          }}
+        >
+          Copiar código
+          <ArrowUpRight size={16} />
+        </button>
+        <code className="ticket-code">{ticket(reservation.id)}</code>
       </section>
-      <aside className="card">
-        <h2>Asistencias</h2>
-        <p>El historial de entradas y salidas no está disponible en la API.</p>
+      <aside className="qr-instructions">
+        <span className="eyebrow">EN RECEPCIÓN</span>
+        <h2>Cómo usar tu QR</h2>
+        <ol>
+          <li>
+            <span>01</span>
+            <div>
+              <h3>Presenta tu código</h3>
+              <p>
+                Preséntalo junto a tu Carnet, TNE o credencial universitaria.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span>02</span>
+            <div>
+              <h3>Disfruta tu sesión</h3>
+              <p>Tu bloque dura 90 minutos.</p>
+            </div>
+          </li>
+          <li>
+            <span>03</span>
+            <div>
+              <h3>Registra tu salida</h3>
+              <p>
+                Usa el mismo QR para salir y volver a ingresar mientras siga
+                vigente tu sesión.
+              </p>
+            </div>
+          </li>
+        </ol>
       </aside>
     </div>
   );
@@ -1283,19 +1505,36 @@ function AccessPanel({
 function Members({
   state,
   onToggle,
+  onEdit,
 }: {
-  state: AppData;
-  onToggle: (id: number) => void;
+  state: DemoState;
+  onToggle: (id: string) => void;
+  onEdit: (member: Member) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Todos");
-  const members = state.members.filter(
-    (m) =>
-      `${m.name} ${m.email} ${m.category}`
-        .toLowerCase()
-        .includes(search.toLowerCase()) &&
-      (filter === "Todos" || m.enabled === (filter === "Habilitados")),
-  );
+  const [branch, setBranch] = useState("");
+  const [category, setCategory] = useState("");
+  const branches = [
+    ...new Set(
+      state.members.flatMap((member) => (member.branch ? [member.branch] : [])),
+    ),
+  ].sort();
+  const members = state.members
+    .filter(
+      (m) =>
+        `${m.name} ${m.rut} ${normalizeRut(m.rut)} ${m.email} ${m.category} ${m.branch ?? ""}`
+          .toLowerCase()
+          .includes(search.toLowerCase()) &&
+        (filter === "Todos" || m.enabled === (filter === "Habilitados")) &&
+        (!branch || m.branch === branch) &&
+        (!category || m.category === category),
+    )
+    .sort(
+      (a, b) =>
+        categoryPriority(a.category) - categoryPriority(b.category) ||
+        a.name.localeCompare(b.name),
+    );
   return (
     <section className="card members-card">
       <div className="members-toolbar">
@@ -1303,7 +1542,7 @@ function Members({
           <Search size={18} aria-hidden="true" />
           <input
             aria-label="Buscar usuarios"
-            placeholder="Buscar por nombre o correo"
+            placeholder="Nombre, RUT o correo"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1317,6 +1556,26 @@ function Members({
             <option key={f}>{f}</option>
           ))}
         </select>
+        <select
+          aria-label="Filtrar por categoría"
+          value={category}
+          onChange={(event) => setCategory(event.target.value)}
+        >
+          <option value="">Todas las categorías</option>
+          {CATEGORIES.map((value) => (
+            <option key={value}>{value}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Filtrar por rama deportiva"
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+        >
+          <option value="">Todas las ramas</option>
+          {branches.map((value) => (
+            <option key={value}>{value}</option>
+          ))}
+        </select>
       </div>
       <div className="table-scroll">
         <table>
@@ -1324,7 +1583,9 @@ function Members({
             <tr>
               <th>Usuario</th>
               <th>Categoría</th>
+              <th>Rama</th>
               <th>Estado</th>
+              <th>Acciones</th>
               <th>Acceso</th>
             </tr>
           </thead>
@@ -1343,14 +1604,30 @@ function Members({
                     <span>
                       <strong>{m.name}</strong>
                       <small>{m.email}</small>
+                      <small>{formatRut(m.rut) || "RUT pendiente"}</small>
                     </span>
                   </div>
                 </td>
                 <td>{m.category}</td>
+                <td>{m.branch ?? "—"}</td>
                 <td>
                   <Badge tone={m.enabled ? "green" : "neutral"}>
                     {m.enabled ? "Habilitado" : "Deshabilitado"}
                   </Badge>
+                  {m.accountStatus === "Pendiente de activación" && (
+                    <small className="account-pending">
+                      Activación pendiente
+                    </small>
+                  )}
+                </td>
+                <td>
+                  <button
+                    className="text-button"
+                    aria-label={`Editar ${m.name}`}
+                    onClick={() => onEdit(m)}
+                  >
+                    Editar
+                  </button>
                 </td>
                 <td>
                   <button
@@ -1383,61 +1660,67 @@ function Members({
 function MemberForm({
   onSave,
   onClose,
+  initial,
 }: {
-  onSave: (data: RegisterRequest) => Promise<string>;
+  onSave: (data: Omit<Member, "id" | "enabled">) => string;
   onClose: () => void;
+  initial?: Member;
 }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [category, setCategory] = useState("Estudiante");
-  const [rut, setRut] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [rut, setRut] = useState(initial?.rut ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
+  const [category, setCategory] = useState(initial?.category ?? "Deportista");
+  const [branch, setBranch] = useState(initial?.branch ?? "");
   const [error, setError] = useState("");
-  async function submit(e: FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim()) {
-      setError("Ingresa un nombre.");
+    if (name.trim().split(/\s+/).length < 2) {
+      setError("Ingresa nombre y apellido.");
+      return;
+    }
+    if (!isValidRut(rut)) {
+      setError("Ingresa un RUT válido con su dígito verificador.");
+      return;
+    }
+    if (category === "Deportista" && !branch.trim()) {
+      setError("Indica la rama deportiva.");
       return;
     }
     setError(
-      await onSave({
+      onSave({
         name: name.trim(),
+        rut: formatRut(rut),
         email,
-        rut,
-        password: newPassword,
-        userType: category as RegisterRequest["userType"],
+        category,
+        branch: category === "Deportista" ? branch.trim() : undefined,
       }),
     );
   }
   return (
-    <Modal title="Agregar usuario" onClose={onClose}>
+    <Modal
+      title={initial ? "Editar usuario" : "Agregar usuario"}
+      onClose={onClose}
+    >
       <form onSubmit={submit} className="member-form">
         <label className="field">
-          RUT
-          <input
-            required
-            value={rut}
-            onChange={(e) => setRut(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          Contraseña inicial
-          <input
-            type="password"
-            required
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            autoComplete="new-password"
-          />
-        </label>
-        <label className="field">
-          Nombre
+          Nombre y apellido
           <input
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
             maxLength={100}
+            autoComplete="off"
+          />
+        </label>
+        <label className="field">
+          RUT
+          <input
+            value={rut}
+            onChange={(event) => setRut(event.target.value)}
+            required
+            maxLength={12}
+            placeholder="12.345.678-5"
             autoComplete="off"
           />
         </label>
@@ -1459,11 +1742,23 @@ function MemberForm({
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
-            {["Estudiante", "Administrador"].map((c) => (
+            {CATEGORIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
         </label>
+        {category === "Deportista" && (
+          <label className="field">
+            Rama deportiva
+            <input
+              value={branch}
+              onChange={(event) => setBranch(event.target.value)}
+              required
+              maxLength={80}
+              placeholder="Ej. Fútbol"
+            />
+          </label>
+        )}
         {error && (
           <p className="form-error" role="alert">
             {error}
@@ -1474,7 +1769,7 @@ function MemberForm({
             Cancelar
           </Button>
           <button type="submit" className="button">
-            Agregar usuario
+            {initial ? "Guardar cambios" : "Agregar usuario"}
           </button>
         </div>
       </form>

@@ -1,49 +1,69 @@
 # UCN Gym
 
-Frontend React 19 + TypeScript para reservas y control de acceso a la sala de pesas. Consume exclusivamente la API `/api/v1`; los datos de negocio y la sesión permanecen en el servidor. No utiliza localStorage ni sessionStorage.
+Frontend React + TypeScript para reservas y acceso a la sala de pesas.
 
-## Desarrollo con la API
+**Versión de presentación.** Datos ficticios en localStorage, sin API ni autenticación real. Los perfiles seleccionables y los QR no autorizan acceso al recinto. No ingresar datos personales reales. Las reglas confirmadas se representan en el cliente; el backend debe hacer cumplir permisos, cupos, identidad y tiempos de forma autoritativa.
 
-Requiere Node.js 22.12 o superior y la API ejecutándose en `http://localhost:5008`. Con las dependencias del proyecto disponibles:
+## Desarrollo
 
-```sh
-npm.cmd run dev
-```
-
-Vite reenvía `/api` a ese servidor. En producción, el frontend y la API deben publicarse en el mismo origen, con `/api/` reenviado al backend. La sesión usa una cookie HttpOnly del servidor; todas las peticiones incluyen `credentials: "same-origin"` y `Accept: application/json`. Las mutaciones incluyen `X-Gym-Csrf: 1`. No se configuran tokens ni secretos en variables `VITE_*`.
-
-El login permite elegir Usuario (RUT y contraseña) o Administración (usuario y contraseña). `/auth/me` restaura la sesión y determina el portal según el rol del servidor: `/estudiante/inicio` para Cliente y `/admin/inicio` para Admin. Una URL de otro portal redirige al correspondiente. Un 401 durante el uso termina la sesión de interfaz y muestra el login; el cierre de sesión invoca `/auth/logout`.
-
-## Funciones y datos
-
-- Horarios por día y capacidad recibida desde la API, reservas personales y cancelación confirmada.
-- QR personal del día: representa el token de `/qr/my-code`, independiente de una reserva concreta. Recepción registra entrada y salida con ese código. La cámara requiere permisos y un contexto seguro; también admite ingreso manual.
-- Administración de usuarios: registro y habilitación de acceso.
-- Indicadores y gráficos calculados desde reservas reales, por fecha de sesión. Los porcentajes sin denominador muestran un guion y la demanda sin reservas muestra un estado vacío.
-
-La API no proporciona ocupación actual ni historial de asistencias; esas secciones muestran su indisponibilidad. Las reservas utilizan únicamente `Reservado`, `Cancelado` y `Asistió`. No se inventan entradas, salidas ni series históricas de asistencia.
-
-## Verificaciones
-
-En PowerShell se utilizan los ejecutables `.cmd` para evitar el bloqueo de `npm.ps1`:
+Node.js 22.12 o superior.
 
 ```sh
-npm.cmd test
-npm.cmd run format:check
-npm.cmd run build
-npx.cmd playwright test
+npm ci
+npm run dev
 ```
 
-Playwright ejecuta los proyectos desktop y mobile con Chromium. Sus pruebas interceptan `**/api/v1/**` mediante `page.route`, mantienen el estado de prueba en memoria y comprueban CSRF en cada mutación. No requieren una API activa. Incluyen sesión, errores, redirección por rol, reserva, QR, acceso, cancelación, usuarios, accesibilidad axe, navegación, gráficos y almacenamiento vacío. Para un servidor frontend ya iniciado se puede definir `E2E_BASE_URL`; la API sigue simulada por las pruebas.
-
-Para corregir formato:
+## Validación
 
 ```sh
-npx.cmd prettier --write src tests vite.config.ts playwright.config.ts
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
-La compilación produce `dist/`. Las pruebas con API simulada verifican el contrato de interfaz; la integración con un backend desplegado se valida en su entorno correspondiente.
+## Despliegue de la demo
+
+```sh
+docker compose up --build -d
+```
+
+Disponible en `http://localhost:8080`; salud en `/healthz`. Terminar HTTPS en el proxy del alojamiento para usar la cámara fuera de localhost. Alternativamente, publicar `dist/` después de `npm run build` en un servidor estático.
+
+El contenedor ejecuta Nginx sin privilegios. Los archivos generados, dependencias instaladas, secretos e informes locales no se versionan. Las variables `VITE_*` son públicas: nunca usarlas para secretos.
+
+Para ejecutar las pruebas de navegador contra el contenedor levantado: `E2E_BASE_URL=http://localhost:8080 npm run test:e2e`.
+
+## Recorrido
+
+Portales independientes:
+
+- `/estudiante/inicio`: horarios, reservas personales, QR y perfil.
+- `/admin/inicio`: indicadores, control de acceso, usuarios y reservas globales.
+- `/recepcion/inicio`: aforo y personas actualmente dentro; `/recepcion/acceso` permite escaneo e identificación, sin historial ni exportaciones.
+- `/admin/grupos`: sesiones de una rama, con participantes nominativos y al menos una hora de anticipación.
+- `/admin/archivos`: importación de usuarios con validación previa y exportación `.xlsx` de los registros locales.
+
+Recorrido: reservar desde el portal usuario → mostrar QR con nombre y RUT → validar Carnet/TNE/credencial → registrar entrada/salida en recepción → reingresar mientras siga vigente la sesión → consultar el historial propio.
+
+Los datos persisten por navegador; no se sincronizan entre dispositivos. La cámara requiere permiso y un contexto seguro. También se puede ingresar el código manualmente. La separación de portales es de interfaz, no sustituye autenticación ni autorización del servidor.
+
+El panel filtra por rama y período: reservas, asistencia, cancelaciones, inasistencias, demanda y permanencia sumando visitas cerradas. El aforo permanece global para no ocultar ocupación de otras ramas. La capacidad es de **30 personas**.
+
+Deportistas: rama obligatoria y varias reservas diarias. Estudiantes: una por día; solo se aplica una cuota semanal si está explícitamente configurada. La prioridad Deportista → Estudiante → Funcionario → Externo está documentada; falta acordar si se aplicará por ventanas, cupos protegidos o lista de espera. No se desplazan reservas confirmadas.
+
+El ingreso se permite desde 15 minutos antes del inicio y hasta antes del fin, sin penalizar atrasos durante la sesión. Las salidas temporales no liberan la reserva. Cada reingreso conserva las visitas anteriores; se puede registrar salida tras finalizar el horario o deshabilitar la cuenta.
+
+Al finalizar una sesión sin entrada se registra inasistencia y se muestra un aviso al usuario. No se aplican sanciones automáticas mientras no se apruebe la política.
+
+Las cuentas nuevas/importadas quedan pendientes de activación. Las páginas `/activar-cuenta`, `/recuperar-contrasena` y `/restablecer-contrasena` están preparadas para los endpoints de correo/contraseñas, usando `VITE_API_BASE_URL` (por defecto `/api`). No simulan correos enviados cuando la API no está disponible. Configurar proveedor, tokens, dominio de enlaces y proxy/CORS en la integración real.
+
+Gráficos con Apache ECharts: tooltips, series activables y zoom en períodos de 30 días. Incluyen tablas alternativas y controles por teclado. El motor gráfico se carga bajo demanda únicamente en el panel administrativo.
+
+Backend independiente: https://github.com/xAchaoooo/Back_Gym. Esta interfaz aún no consume esa API.
 
 ## Recursos visuales
 
 Logo PNG facilitado por el responsable del proyecto. Paleta: azul marino, dorado y blanco. Fotografía ilustrativa de [Unsplash](https://images.unsplash.com/photo-1534438327276-14e5300c3a48); no corresponde al recinto UCN.
+
+Para uso real faltan API segura, autenticación, reglas aprobadas y validación de infraestructura. Esta demo no sustituye el sistema institucional.
