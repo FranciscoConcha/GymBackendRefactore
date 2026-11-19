@@ -219,7 +219,7 @@ public sealed class AccountTests(GymApiFactory factory)
             category = UserCategories.Externo,
         }, JsonOptions, Ct), HttpStatusCode.OK);
         var mail = await factory.WithDbAsync(db => db.EmailOutbox.SingleAsync(e => e.To == $"{rut}@example.test", Ct));
-        Assert.Contains("https://frontend.example/base/activar?token=", mail.Body);
+        Assert.Contains("https://frontend.example/base/activar-cuenta?token=", mail.Body);
         Assert.DoesNotContain("attacker.example", mail.Body);
         Assert.Null(mail.SentAt);
         Assert.Equal(0, mail.AttemptCount);

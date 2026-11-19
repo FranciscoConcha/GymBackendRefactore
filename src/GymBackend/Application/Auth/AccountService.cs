@@ -113,7 +113,7 @@ public sealed class AccountService(AppDbContext context, IUserPasswordHasher has
             CreatedAt = now,
             ExpiresAt = activation ? now.AddHours(options.Value.ActivationHours) : now.AddMinutes(options.Value.ResetMinutes),
         });
-        var link = options.Value.FrontendBaseUrl.TrimEnd('/') + (activation ? "/activar?token=" : "/restablecer?token=") + token;
+        var link = options.Value.FrontendBaseUrl.TrimEnd('/') + (activation ? "/activar-cuenta?token=" : "/restablecer-contrasena?token=") + token;
         context.EmailOutbox.Add(new EmailOutbox
         {
             To = user.Email,
