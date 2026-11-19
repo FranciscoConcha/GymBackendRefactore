@@ -241,11 +241,11 @@ public sealed class IdentityTests(GymApiFactory factory)
         using var timedUser = host.CreateClient();
         timedUser.DefaultRequestHeaders.Authorization = userClient.DefaultRequestHeaders.Authorization;
         var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(10, 0), new TimeOnly(11, 0));
-        await factory.InsertReservationAsync(user.UserId, slot.Id, new DateOnly(2026, 11, 17));
-        var qr = await Api.Qr(timedUser);
+        var qrReservation = await factory.InsertReservationAsync(user.UserId, slot.Id, new DateOnly(2026, 11, 17));
+        var qr = await Api.Qr(timedUser, qrReservation.Id);
         var entry = await Expect(await Api.Access(timedStaff, "entry", qr), HttpStatusCode.OK);
         Assert.Equal($"Test {user.Rut}", entry.GetProperty("visit").GetProperty("fullName").GetString());
-        await Expect(await Api.Access(timedStaff, "exit", qr), HttpStatusCode.OK);
+        await Expect(await Api.Exit(timedStaff, user.UserId), HttpStatusCode.OK);
         await Expect(await staff.PostAsync("/api/v1/auth/logout", null, Ct), HttpStatusCode.OK);
     }
 

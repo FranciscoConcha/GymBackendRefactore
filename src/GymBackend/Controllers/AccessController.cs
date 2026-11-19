@@ -27,8 +27,8 @@ public sealed class AccessController(AccessService service) : ControllerBase
         this.ToActionResult(await service.EntryAsync(request, User.GetUserId()!.Value, ct));
 
     [HttpPost("exit")]
-    public async Task<IActionResult> Exit(AccessRequest request, CancellationToken ct) =>
-        this.ToActionResult(await service.ExitAsync(request.Token, User.GetUserId()!.Value, ct));
+    public async Task<IActionResult> Exit(ExitAccessRequest request, CancellationToken ct) =>
+        this.ToActionResult(await service.ExitAsync(request.UserId, User.GetUserId()!.Value, ct));
 
     [HttpGet("current")]
     public async Task<IActionResult> Current(CancellationToken ct) => Ok(await service.CurrentAsync(ct));

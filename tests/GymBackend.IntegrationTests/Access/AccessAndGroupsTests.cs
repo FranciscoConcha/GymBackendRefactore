@@ -67,7 +67,7 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
             stored.CategoryAtBooking = UserCategories.Deportista;
             await db.SaveChangesAsync(Ct);
         });
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(user)), HttpStatusCode.OK);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(user))), HttpStatusCode.OK);
         var current = await Expect(await session.Admin.GetAsync("/api/v1/access/current", Ct), HttpStatusCode.OK);
         var person = Assert.Single(current.GetProperty("people").EnumerateArray(), p => p.GetProperty("userId").GetInt32() == user.Id);
         Assert.Equal("11:00", person.GetProperty("sessionEndTime").GetString());
@@ -98,14 +98,14 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         var user = await session.User();
         var slot = await session.Slot();
         await factory.InsertReservationAsync(user.Id, slot.Id, Session.Today);
-        var validation = await Expect(await Api.Access(session.Admin, "validate", session.Token(user)), HttpStatusCode.OK);
+        var validation = await Expect(await Api.Access(session.Admin, "validate", (await session.Token(user))), HttpStatusCode.OK);
         Assert.True(validation.GetProperty("canEnter").GetBoolean());
         Assert.False(validation.GetProperty("inside").GetBoolean());
         Assert.False(await factory.WithDbAsync(db => db.Visits.AnyAsync(v => v.UserId == user.Id, Ct)));
-        await Expect(await session.Admin.PostAsJsonAsync("/api/v1/access/entry", new { token = session.Token(user) }, JsonOptions, Ct), HttpStatusCode.BadRequest);
+        await Expect(await session.Admin.PostAsJsonAsync("/api/v1/access/entry", new { token = (await session.Token(user)) }, JsonOptions, Ct), HttpStatusCode.BadRequest);
         using var malformed = new StringContent("{", Encoding.UTF8, "application/json");
         await Expect(await session.Admin.PostAsync("/api/v1/access/entry", malformed, Ct), HttpStatusCode.BadRequest);
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(user)), HttpStatusCode.OK);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(user))), HttpStatusCode.OK);
         var events = await factory.WithDbAsync(db => db.AccessEvents.Where(e => e.OperatorId == session.OperatorId).OrderBy(e => e.Id).ToArrayAsync(Ct));
         Assert.Equal(new[] { "Aceptado", "Rechazado", "Rechazado", "Aceptado" }, events.Select(e => e.Result));
         Assert.All(events.Where(e => e.Result == "Rechazado"), e => Assert.False(string.IsNullOrWhiteSpace(e.Reason)));
@@ -118,14 +118,14 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         var user = await session.User();
         var slot = await session.Slot(capacity: 1);
         var reservation = await factory.InsertReservationAsync(user.Id, slot.Id, Session.Today);
-        var first = (await Expect(await Api.Access(session.Admin, "entry", session.Token(user)), HttpStatusCode.OK)).GetProperty("visit");
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(user)), HttpStatusCode.Conflict);
+        var first = (await Expect(await Api.Access(session.Admin, "entry", (await session.Token(user))), HttpStatusCode.OK)).GetProperty("visit");
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(user))), HttpStatusCode.Conflict);
         session.Clock.Advance(TimeSpan.FromMinutes(1));
-        var firstExit = (await Expect(await Api.Access(session.Admin, "exit", session.Token(user)), HttpStatusCode.OK)).GetProperty("visit");
+        var firstExit = (await Expect(await Api.Exit(session.Admin, user.Id), HttpStatusCode.OK)).GetProperty("visit");
         session.Clock.Advance(TimeSpan.FromMinutes(1));
-        var second = (await Expect(await Api.Access(session.Admin, "entry", session.Token(user)), HttpStatusCode.OK)).GetProperty("visit");
+        var second = (await Expect(await Api.Access(session.Admin, "entry", (await session.Token(user))), HttpStatusCode.OK)).GetProperty("visit");
         session.Clock.Advance(TimeSpan.FromMinutes(1));
-        var secondExit = (await Expect(await Api.Access(session.Admin, "exit", session.Token(user)), HttpStatusCode.OK)).GetProperty("visit");
+        var secondExit = (await Expect(await Api.Exit(session.Admin, user.Id), HttpStatusCode.OK)).GetProperty("visit");
         Assert.NotEqual(first.GetProperty("id").GetInt32(), second.GetProperty("id").GetInt32());
         Assert.Equal(first.GetProperty("entryAt").GetDateTime(), firstExit.GetProperty("entryAt").GetDateTime());
         Assert.Equal(1, firstExit.GetProperty("stayMinutes").GetDouble());
@@ -145,11 +145,11 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         var user = await session.User();
         var slot = await session.Slot();
         await factory.InsertReservationAsync(user.Id, slot.Id, Session.Today);
-        var token = session.Token(user);
+        var token = (await session.Token(user));
         await Expect(await Api.Access(session.Admin, "entry", token), HttpStatusCode.OK);
         await Expect(await Status(session.Admin, user.Id, false), HttpStatusCode.OK);
         session.Clock.Advance(TimeSpan.FromHours(3));
-        await Expect(await Api.Access(session.Admin, "exit", token), HttpStatusCode.OK);
+        await Expect(await Api.Exit(session.Admin, user.Id), HttpStatusCode.OK);
         await Expect(await Api.Access(session.Admin, "entry", token), HttpStatusCode.BadRequest, "El usuario no está habilitado.");
     }
 
@@ -215,13 +215,13 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         var individual = await session.User(branch.Id);
         await factory.InsertReservationAsync(individual.Id, slot.Id, Session.Today);
         session.Clock.Advance(TimeSpan.FromHours(2));
-        var individualEntry = await Expect(await Api.Access(session.Admin, "entry", session.Token(individual)), HttpStatusCode.OK);
+        var individualEntry = await Expect(await Api.Access(session.Admin, "entry", (await session.Token(individual))), HttpStatusCode.OK);
         Assert.Equal(System.Text.Json.JsonValueKind.Null, individualEntry.GetProperty("visit").GetProperty("groupBookingId").ValueKind);
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(outsider)), HttpStatusCode.BadRequest);
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(first)), HttpStatusCode.OK);
-        await Expect(await Api.Access(session.Admin, "exit", session.Token(first)), HttpStatusCode.OK);
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(second)), HttpStatusCode.BadRequest);
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(first)), HttpStatusCode.OK);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(outsider))), HttpStatusCode.BadRequest);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(first))), HttpStatusCode.OK);
+        await Expect(await Api.Exit(session.Admin, first.Id), HttpStatusCode.OK);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(second))), HttpStatusCode.BadRequest);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(first))), HttpStatusCode.OK);
         var groups = await Expect(await session.Admin.GetAsync("/api/v1/group-bookings?from=2026-11-17&to=2026-11-17", Ct), HttpStatusCode.OK);
         var group = Assert.Single(groups.EnumerateArray(), g => g.GetProperty("id").GetInt32() == groupId);
         Assert.Equal(1, group.GetProperty("usedSeats").GetInt32());
@@ -229,9 +229,9 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         using var member = session.Client(first);
         var mine = await Expect(await member.GetAsync("/api/v1/me/group-bookings", Ct), HttpStatusCode.OK);
         Assert.Contains(mine.EnumerateArray(), g => g.GetProperty("id").GetInt32() == groupId);
-        var qr = await Expect(await member.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.OK);
-        Assert.Equal(groupId, qr.GetProperty("nextSession").GetProperty("groupBookingId").GetInt32());
-        Assert.Equal(branch.Id, qr.GetProperty("sportBranch").GetProperty("id").GetInt32());
+        var qr = await Expect(await member.GetAsync($"/api/v1/me/group-bookings/{groupId}/qr", Ct), HttpStatusCode.OK);
+        Assert.Equal(groupId, qr.GetProperty("session").GetProperty("groupBookingId").GetInt32());
+        Assert.Equal(branch.Id, qr.GetProperty("user").GetProperty("sportBranch").GetProperty("id").GetInt32());
     }
 
     [Fact]
@@ -282,7 +282,7 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         var tasks = candidates.Select(async user =>
         {
             await start.Task.WaitAsync(Ct);
-            return await Api.Access(session.Admin, "entry", session.Token(user));
+            return await Api.Access(session.Admin, "entry", (await session.Token(user)));
         }).ToArray();
         start.SetResult();
         var responses = await Task.WhenAll(tasks);
@@ -296,7 +296,7 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         Assert.Equal(30, await factory.WithDbAsync(db => db.Visits.CountAsync(v => v.ExitAt == null, Ct)));
         var another = await session.User();
         await factory.InsertReservationAsync(another.Id, slot.Id, Session.Today);
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(another)), HttpStatusCode.Conflict, AccessRules.Full);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(another))), HttpStatusCode.Conflict, AccessRules.Full);
     }
 
     [Fact]
@@ -310,8 +310,9 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         var user = await session.User();
         var slot = await session.Slot();
         await factory.InsertReservationAsync(user.Id, slot.Id, Session.Today);
-        foreach (var action in new[] { "validate", "entry", "exit" })
-            await Expect(await Api.Access(staff, action, session.Token(user)), HttpStatusCode.OK);
+        foreach (var action in new[] { "validate", "entry" })
+            await Expect(await Api.Access(staff, action, (await session.Token(user))), HttpStatusCode.OK);
+        await Expect(await Api.Exit(staff, user.Id), HttpStatusCode.OK);
         using var visits = await staff.GetAsync("/api/v1/visits", Ct);
         Assert.Equal(HttpStatusCode.Forbidden, visits.StatusCode);
         using var groups = await staff.GetAsync("/api/v1/group-bookings", Ct);
@@ -329,11 +330,11 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         var user = await session.User();
         var slot = await session.Slot();
         await factory.InsertReservationAsync(user.Id, slot.Id, Session.Today);
-        foreach (var token in new[] { "invalid", QrTokenFormat.Create(user.Rut, factory.QrKey, Session.Today.AddDays(-1)),
-            QrTokenFormat.Create(user.Rut, "wrong-key", Session.Today), session.Token(user) + "tampered" })
+        foreach (var token in new[] { "invalid", await session.Token(user, dayOffset: -1),
+            await session.Token(user, "wrong-key"), (await session.Token(user)) + "tampered" })
             await Expect(await Api.Access(session.Admin, "entry", token), HttpStatusCode.BadRequest);
         var other = await session.User();
-        await Expect(await Api.Access(session.Admin, "entry", session.Token(other)), HttpStatusCode.BadRequest);
+        await Expect(await Api.Access(session.Admin, "entry", (await session.Token(other))), HttpStatusCode.BadRequest);
         Assert.False(await factory.WithDbAsync(db => db.Visits.AnyAsync(v => v.UserId == user.Id, Ct)));
     }
 
@@ -373,7 +374,7 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
         Assert.Equal(1, await factory.WithDbAsync(db => db.Reservations.CountAsync(r => r.UserId == user.Id, Ct)));
         session.Clock.Advance(TimeSpan.FromHours(2));
         var entryKey = Guid.NewGuid().ToString("N");
-        var entry = new { token = session.Token(user), documentType = "TNE" };
+        var entry = new { token = (await session.Token(user)), documentType = "TNE" };
         var entries = await Task.WhenAll(Send(session.Admin, "/api/v1/access/entry", entry, entryKey), Send(session.Admin, "/api/v1/access/entry", entry, entryKey));
         try
         {
@@ -468,7 +469,20 @@ public sealed class AccessAndGroupsTests(GymApiFactory factory)
             return user;
         });
 
-        internal string Token(User user) => QrTokenFormat.Create(user.Rut, factory.QrKey, Today);
+        internal async Task<string> Token(User user, string? key = null, int dayOffset = 0)
+        {
+            return await factory.WithDbAsync(async db =>
+            {
+                var reservation = await db.Reservations.Include(r => r.ScheduleSlot).Where(r => r.UserId == user.Id).OrderBy(r => r.Id).FirstOrDefaultAsync(Ct);
+                var group = reservation is null ? await db.GroupBookings.Include(g => g.ScheduleSlot).Where(g => g.Date == Today).OrderByDescending(g => g.SportBranchId == user.SportBranchId).ThenByDescending(g => g.Id).FirstOrDefaultAsync(Ct) : null;
+                var slot = reservation?.ScheduleSlot ?? group?.ScheduleSlot;
+                var date = (reservation?.Date ?? group?.Date ?? Today).AddDays(dayOffset);
+                var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Santiago");
+                var start = GymBackend.Application.Groups.GroupBookingRules.ToInstant(date, slot?.StartTime ?? new(10, 0), zone)!.Value.AddMinutes(-15);
+                var end = GymBackend.Application.Groups.GroupBookingRules.ToInstant(date, slot?.EndTime ?? new(11, 0), zone)!.Value;
+                return AccessQrToken.Create(new(2, reservation is not null || group is null ? "R" : "G", reservation?.Id ?? (group is null ? int.MaxValue : null), group?.Id, user.Id, start.ToUnixTimeSeconds(), end.ToUnixTimeSeconds()), key ?? factory.QrKey);
+            });
+        }
         internal HttpClient Client(User user)
         {
             var client = host.CreateClient();

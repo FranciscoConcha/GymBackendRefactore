@@ -23,11 +23,13 @@ public sealed class AccessDateTests(GymApiFactory factory)
         var today = new DateOnly(2026, 11, 17);
         var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(9, 0), new TimeOnly(10, 0));
         var other = await factory.InsertReservationAsync(user.UserId, slot.Id, today.AddDays(otherDateOffset));
-        var token = await Api.Qr(client);
+        var token = await Api.Qr(client, other.Id);
         await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.BadRequest,
-            "El usuario no se encuentra registrado en el horario de ingreso.");
+            "El código QR no está vigente para este bloque.");
         var current = await factory.InsertReservationAsync(user.UserId, slot.Id, today);
-        var entry = await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.OK, "Entrada registrada correctamente.");
+        await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.BadRequest);
+        var currentToken = await Api.Qr(client, current.Id);
+        var entry = await Expect(await Api.Access(admin, "entry", currentToken), HttpStatusCode.OK, "Entrada registrada correctamente.");
         var attendance = entry.GetProperty("visit");
         Assert.Equal(current.Id, attendance.GetProperty("reservationId").GetInt32());
         Assert.NotEqual(other.Id, attendance.GetProperty("reservationId").GetInt32());

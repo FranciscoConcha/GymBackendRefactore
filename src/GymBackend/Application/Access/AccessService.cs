@@ -1,4 +1,5 @@
 using GymBackend.Application.Common;
+using GymBackend.Application.Groups;
 using GymBackend.Application.Qr;
 using GymBackend.Data;
 using GymBackend.Domain;
@@ -24,11 +25,13 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
             await RecordAsync("Validar", operatorId, null, error, ct);
             return ServiceError.Validation(error);
         }
-        var session = await FindSessionAsync(user, ct);
+        var session = await FindSessionAsync(user, token, ct);
         var inside = await db.Visits.AnyAsync(v => v.UserId == user.Id && v.ExitAt == null, ct);
         var current = await db.Visits.CountAsync(v => v.ExitAt == null, ct);
         var reason = AccessRules.Rejection(user.Enabled, user.AccountStatus == AccountStatus.Activa,
             inside, session is not null, current, options.Value.MaxOccupancy);
+        if (user.Enabled && user.AccountStatus == AccountStatus.Activa && tokens.TryRead(token, out var payload) && !payload.IsCurrent(clock.UtcNow))
+            reason = AccessQrToken.NotCurrent;
         await RecordAsync("Validar", operatorId, user.Id, reason, ct);
         return ServiceResult<AccessValidationResponse>.Success(new(AccessUserResponse.From(user), session, inside,
             reason is null, reason, new(current, options.Value.MaxOccupancy)));
@@ -47,24 +50,23 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
             // Account changes cannot race entry validation.
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Users\" WHERE \"Id\" = {user.Id} FOR UPDATE", ct);
             await db.Entry(user).ReloadAsync(ct);
-            session = await FindSessionAsync(user, ct);
-            var lockedSlots = new HashSet<int>();
-            while (session is not null)
+            session = await FindSessionAsync(user, request.Token, ct);
+            if (session is not null)
             {
                 var slotId = session.ReservationId is { } rid
                     ? await db.Reservations.Where(r => r.Id == rid).Select(r => r.ScheduleSlotId).SingleAsync(ct)
                     : await db.GroupBookings.Where(g => g.Id == session.GroupBookingId).Select(g => g.ScheduleSlotId).SingleAsync(ct);
-                if (!lockedSlots.Add(slotId)) break;
                 await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"ScheduleSlots\" WHERE \"Id\" = {slotId} FOR UPDATE", ct);
-                // Cancellation may have changed the preferred session while waiting for its slot.
-                // Continue until the final selected session is protected by a held lock.
-                session = await FindSessionAsync(user, ct);
+                // Recheck cancellation and the window after waiting for the slot lock.
+                session = await FindSessionAsync(user, request.Token, ct);
             }
             var inside = await db.Visits.AnyAsync(v => v.UserId == user.Id && v.ExitAt == null, ct);
             var current = await db.Visits.CountAsync(v => v.ExitAt == null, ct);
             reason = AccessRules.Rejection(user.Enabled, user.AccountStatus == AccountStatus.Activa, inside,
                 session is not null, current, options.Value.MaxOccupancy);
-            conflict = inside || reason == AccessRules.Full;
+            if (user.Enabled && user.AccountStatus == AccountStatus.Activa && tokens.TryRead(request.Token, out var payload) && !payload.IsCurrent(clock.UtcNow))
+                reason = AccessQrToken.NotCurrent;
+            conflict = reason == "El usuario ya se encuentra dentro de la sala." || reason == AccessRules.Full;
             if (reason is null && !AccessRules.ValidDocument(request.DocumentType))
                 reason = "Debe confirmar un documento válido: CarnetIdentidad, TNE o CredencialUniversitaria.";
         }
@@ -80,7 +82,7 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
             User = user,
             ReservationId = session!.ReservationId,
             GroupBookingId = session.GroupBookingId,
-            Date = clock.Today,
+            Date = DateOnly.ParseExact(session.Date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             EntryAt = clock.UtcNow.UtcDateTime,
             EntryOperatorId = operatorId,
             EntryOperator = await db.Users.SingleAsync(u => u.Id == operatorId, ct),
@@ -97,23 +99,22 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
         return ServiceResult<VisitMessageResponse>.Success(new("Entrada registrada correctamente.", VisitResponse.From(visit)));
     }
 
-    public async Task<ServiceResult<VisitMessageResponse>> ExitAsync(string? token, int operatorId, CancellationToken ct)
+    public async Task<ServiceResult<VisitMessageResponse>> ExitAsync(int userId, int operatorId, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({OccupancyLock})", ct);
-        var (user, error) = await ResolveAsync(token, ct);
-        var visit = user is null ? null : await Visits().FirstOrDefaultAsync(v => v.UserId == user.Id && v.ExitAt == null, ct);
+        var visit = await Visits().FirstOrDefaultAsync(v => v.UserId == userId && v.ExitAt == null, ct);
         if (visit is null)
         {
-            var reason = user is null ? error : "El usuario no tiene una visita abierta.";
-            await RecordAsync("Salida", operatorId, user?.Id, reason, ct);
+            const string reason = "El usuario no tiene una visita abierta.";
+            await RecordAsync("Salida", operatorId, null, reason, ct);
             await transaction.CommitAsync(ct);
             return ServiceError.Validation(reason);
         }
         visit.ExitAt = clock.UtcNow.UtcDateTime;
         visit.ExitOperatorId = operatorId;
         visit.ExitOperator = await db.Users.SingleAsync(u => u.Id == operatorId, ct);
-        await RecordAsync("Salida", operatorId, user!.Id, null, ct);
+        await RecordAsync("Salida", operatorId, visit.UserId, null, ct);
         await transaction.CommitAsync(ct);
         return ServiceResult<VisitMessageResponse>.Success(new("Salida registrada correctamente.", VisitResponse.From(visit)));
     }
@@ -143,32 +144,37 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
 
     private async Task<(User? User, string Error)> ResolveAsync(string? token, CancellationToken ct)
     {
-        if (!tokens.TryValidate(token, clock.Today, out var rut, out var error)) return (null, error);
-        var user = await db.Users.Include(u => u.SportBranch).SingleOrDefaultAsync(u => u.Rut == rut, ct);
-        return (user, user is null ? "Código QR inválido." : string.Empty);
+        if (!tokens.TryRead(token, out var payload)) return (null, AccessQrToken.Invalid);
+        var user = await db.Users.Include(u => u.SportBranch).SingleOrDefaultAsync(u => u.Id == payload.UserId, ct);
+        return (user, user is null ? AccessQrToken.Invalid : string.Empty);
     }
 
-    public async Task<AccessSessionResponse?> FindSessionAsync(User user, CancellationToken ct)
+    private async Task<AccessSessionResponse?> FindSessionAsync(User user, string? token, CancellationToken ct)
     {
-        var now = TimeOnly.FromDateTime(clock.LocalNow.DateTime);
-        var reservations = await db.Reservations.AsNoTracking().Include(r => r.ScheduleSlot)
-            .Where(r => r.UserId == user.Id && r.Date == clock.Today &&
-                (r.Status == ReservationStatus.Reserved || r.Status == ReservationStatus.Attended))
-            .OrderBy(r => r.ScheduleSlot.StartTime).ThenBy(r => r.Id).ToArrayAsync(ct);
-        var reservation = reservations.FirstOrDefault(r => r.ScheduleSlot.Enabled && AccessRules.IsWithin(r.ScheduleSlot.StartTime, r.ScheduleSlot.EndTime, now));
-        if (reservation is not null) return AccessSessionResponse.From(reservation);
-        if (user.Category != UserCategories.Deportista || user.SportBranchId is null) return null;
-        var groups = await db.GroupBookings.AsNoTracking().Include(g => g.ScheduleSlot).Where(g => g.Date == clock.Today
-            && g.Status == "Activa" && g.SportBranchId == user.SportBranchId && g.SportBranch.Enabled && g.ScheduleSlot.Enabled)
-            .OrderBy(g => g.ScheduleSlot.StartTime).ThenBy(g => g.Id).ToArrayAsync(ct);
-        foreach (var group in groups.Where(g => AccessRules.IsWithin(g.ScheduleSlot.StartTime, g.ScheduleSlot.EndTime, now)))
+        if (!tokens.TryRead(token, out var payload) || payload.UserId != user.Id || !payload.IsCurrent(clock.UtcNow)) return null;
+        if (payload.Kind == "R")
         {
-            var used = await db.Visits.Where(v => v.GroupBookingId == group.Id).Select(v => v.UserId).Distinct().CountAsync(ct);
-            var alreadyUsed = await db.Visits.AnyAsync(v => v.GroupBookingId == group.Id && v.UserId == user.Id, ct);
-            if (AccessRules.CanUseGroup(user.Category, user.SportBranchId, group.SportBranchId, group.Seats, used, alreadyUsed))
-                return AccessSessionResponse.From(group);
+            var reservation = await db.Reservations.AsNoTracking().Include(r => r.ScheduleSlot)
+                .SingleOrDefaultAsync(r => r.Id == payload.ReservationId && r.UserId == user.Id &&
+                    (r.Status == ReservationStatus.Reserved || r.Status == ReservationStatus.Attended), ct);
+            return reservation is not null && Matches(payload, reservation.Date, reservation.ScheduleSlot)
+                ? AccessSessionResponse.From(reservation) : null;
         }
-        return null;
+        var group = await db.GroupBookings.AsNoTracking().Include(g => g.ScheduleSlot)
+            .SingleOrDefaultAsync(g => g.Id == payload.GroupBookingId && g.Status == "Activa" && g.SportBranch.Enabled, ct);
+        if (group is null || !Matches(payload, group.Date, group.ScheduleSlot)) return null;
+        var used = await db.Visits.Where(v => v.GroupBookingId == group.Id).Select(v => v.UserId).Distinct().CountAsync(ct);
+        var alreadyUsed = await db.Visits.AnyAsync(v => v.GroupBookingId == group.Id && v.UserId == user.Id, ct);
+        return AccessRules.CanUseGroup(user.Category, user.SportBranchId, group.SportBranchId, group.Seats, used, alreadyUsed)
+            ? AccessSessionResponse.From(group) : null;
+    }
+
+    private bool Matches(AccessQrPayload payload, DateOnly date, ScheduleSlot slot)
+    {
+        var start = GroupBookingRules.ToInstant(date, slot.StartTime, clock.TimeZone);
+        var end = GroupBookingRules.ToInstant(date, slot.EndTime, clock.TimeZone);
+        return slot.Enabled && start is not null && end is not null &&
+            payload.NotBefore == start.Value.AddMinutes(-15).ToUnixTimeSeconds() && payload.Expires == end.Value.ToUnixTimeSeconds();
     }
 
     private async Task RecordAsync(string action, int operatorId, int? userId, string? reason, CancellationToken ct)

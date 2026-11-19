@@ -30,7 +30,7 @@ builder.Services.AddGymCors();
 builder.Services.AddReservationServices();
 builder.Services.AddAuthServices();
 builder.Services.AddScoped<GymBackend.Application.Qr.IQrTokenService, GymBackend.Application.Qr.QrTokenService>();
-builder.Services.AddScoped<GymBackend.Application.Qr.IQrService, GymBackend.Application.Qr.QrService>();
+builder.Services.AddScoped<GymBackend.Application.Qr.BlockQrService>();
 builder.Services.AddScoped<GymBackend.Application.Access.AccessService>();
 builder.Services.AddScoped<AccessAttemptFilter>();
 builder.Services.AddScoped<GymBackend.Application.Groups.GroupBookingService>();

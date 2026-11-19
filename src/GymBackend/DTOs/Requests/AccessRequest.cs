@@ -6,3 +6,8 @@ public sealed class AccessRequest
     public string? Token { get; set; }
     public string? DocumentType { get; set; }
 }
+
+public sealed class ExitAccessRequest
+{
+    public int UserId { get; set; }
+}

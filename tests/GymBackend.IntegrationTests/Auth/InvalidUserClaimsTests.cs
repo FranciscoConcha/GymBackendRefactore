@@ -13,7 +13,7 @@ public sealed class InvalidUserClaimsTests(GymApiFactory factory)
     public async Task MissingOrInvalidUserId_ReturnsUnauthorized(string? userId)
     {
         using var client = factory.CreateClientWithToken(factory.CreateJwt(userId, "Usuario", TestData.NextRut()));
-        using var qr = await client.GetAsync("/api/v1/qr/my-code", Ct);
+        using var qr = await client.GetAsync("/api/v1/me/reservations/1/qr", Ct);
         using var reservation = await client.PostAsJsonAsync("/api/v1/reservations",
             new { scheduleSlotId = 0, date = GymTime.Tomorrow() }, JsonOptions, Ct);
         using var own = await client.GetAsync("/api/v1/reservations/user/1", Ct);

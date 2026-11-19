@@ -4,11 +4,15 @@ public static class GroupBookingRules
 {
     public static bool HasLeadTime(DateTimeOffset now, DateOnly date, TimeOnly start, TimeZoneInfo zone)
     {
-        var localStart = date.ToDateTime(start);
-        // Reject nonexistent local times and use the earliest occurrence of an ambiguous time.
-        if (zone.IsInvalidTime(localStart)) return false;
-        var offset = zone.IsAmbiguousTime(localStart) ? zone.GetAmbiguousTimeOffsets(localStart).Max() : zone.GetUtcOffset(localStart);
-        return new DateTimeOffset(localStart, offset) - now >= TimeSpan.FromMinutes(60);
+        return ToInstant(date, start, zone) is { } instant && instant - now >= TimeSpan.FromMinutes(60);
+    }
+
+    public static DateTimeOffset? ToInstant(DateOnly date, TimeOnly time, TimeZoneInfo zone)
+    {
+        var local = date.ToDateTime(time);
+        if (zone.IsInvalidTime(local)) return null;
+        var offset = zone.IsAmbiguousTime(local) ? zone.GetAmbiguousTimeOffsets(local).Max() : zone.GetUtcOffset(local);
+        return new DateTimeOffset(local, offset).ToUniversalTime();
     }
 
     public static int? ResolveSeats(string? mode, int? seats, int available) => mode switch
