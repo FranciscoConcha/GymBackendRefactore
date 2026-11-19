@@ -76,7 +76,8 @@ public sealed class AuthTests(GymApiFactory factory)
         Assert.Equal("Cliente", user.GetProperty("role").GetString());
         Assert.Equal("", user.GetProperty("username").GetString());
         Assert.True(user.GetProperty("enabled").GetBoolean());
-        Assert.Equal($"user-{rut}@example.test", user.GetProperty("email").GetString());
+        // El RUT puede terminar en K: el correo completo se normaliza a minúsculas.
+        Assert.Equal($"user-{rut.ToLowerInvariant()}@example.test", user.GetProperty("email").GetString());
         var hash = await factory.WithDbAsync(db => db.Users.Where(u => u.Rut == rut).Select(u => u.PasswordHash).SingleAsync(Ct));
         Assert.NotEqual(32, Convert.FromBase64String(hash).Length);
         Assert.Equal(PasswordCheck.Success, new Pbkdf2PasswordHasher().Verify(password, hash));
