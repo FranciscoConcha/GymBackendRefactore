@@ -21,3 +21,6 @@ csharp_style_var_for_built_in_types = true:suggestion
 
 [**/Migrations/*.cs]
 generated_code = true
+
+[frontend/**]
+indent_size = 2

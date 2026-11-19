@@ -17,11 +17,13 @@ public sealed class InputValidationTests(GymApiFactory factory)
         await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut,
-            name,
+            firstName = name,
+            lastName = "Test",
             email = $"{rut}@example.test",
             password = "Password123!",
-            userType = "Estudiante",
-        }, JsonOptions, Ct), HttpStatusCode.BadRequest, "El nombre contiene caracteres no permitidos.");
+            role = "Usuario",
+            category = "Estudiante",
+        }, JsonOptions, Ct), HttpStatusCode.BadRequest, "El nombre contiene caracteres no permitidos o supera los 80 caracteres.");
     }
 
     [Theory]
@@ -34,12 +36,14 @@ public sealed class InputValidationTests(GymApiFactory factory)
         var json = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut,
-            name,
+            firstName = name,
+            lastName = "Test",
             email = $"{rut}@example.test",
             password = "Password123!",
-            userType = "Estudiante",
+            role = "Usuario",
+            category = "Estudiante",
         }, JsonOptions, Ct), HttpStatusCode.OK, "Usuario registrado correctamente.");
-        Assert.Equal(name, json.GetProperty("user").GetProperty("name").GetString());
+        Assert.Equal(name, json.GetProperty("user").GetProperty("firstName").GetString());
     }
 
     [Theory]
@@ -51,10 +55,12 @@ public sealed class InputValidationTests(GymApiFactory factory)
         await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut = TestData.NextRut(),
-            name = "Juan",
+            firstName = "Juan",
+            lastName = "Test",
             email,
             password = "Password123!",
-            userType = "Estudiante",
+            role = "Usuario",
+            category = "Estudiante",
         }, JsonOptions, Ct), HttpStatusCode.BadRequest, "El correo no tiene un formato válido.");
     }
 }

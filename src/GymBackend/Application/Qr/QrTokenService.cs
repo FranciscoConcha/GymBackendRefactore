@@ -3,13 +3,8 @@ using Microsoft.Extensions.Options;
 
 namespace GymBackend.Application.Qr;
 
-public sealed class QrTokenService(IOptions<QrOptions> qrOptions) : IQrTokenService
+public sealed class QrTokenService(IOptions<QrOptions> options) : IQrTokenService
 {
-    private string SigningKey => qrOptions.Value.SigningKey
-        ?? throw new InvalidOperationException("Qr:SigningKey no está configurada.");
-
-    public string Generate(string rut, DateOnly date) => QrTokenFormat.Create(rut, SigningKey, date);
-
-    public bool TryValidate(string? token, DateOnly today, out string rut, out string error) =>
-        QrTokenFormat.TryValidate(token, SigningKey, today, out rut, out error);
+    public string Generate(AccessQrPayload payload) => AccessQrToken.Create(payload, options.Value.SigningKey!);
+    public bool TryRead(string? token, out AccessQrPayload payload) => AccessQrToken.TryRead(token, options.Value.SigningKey!, out payload);
 }

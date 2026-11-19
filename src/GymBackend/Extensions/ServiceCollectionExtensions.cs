@@ -27,10 +27,40 @@ public static class ServiceCollectionExtensions
         services.AddOptions<ReservationOptions>()
             .BindConfiguration(ReservationOptions.SectionName)
             .Validate(o => o.MaxDaysAhead is >= 0 and <= 60, "Reservations:MaxDaysAhead debe estar entre 0 y 60.")
+            .Validate(o => o.CategoryMaxDaysAhead.All(pair => pair.Value >= 0 && pair.Key is
+                GymBackend.Domain.UserCategories.Deportista or GymBackend.Domain.UserCategories.Estudiante or
+                GymBackend.Domain.UserCategories.Funcionario or GymBackend.Domain.UserCategories.Externo),
+                "Reservations:CategoryMaxDaysAhead debe contener categorías válidas y valores mayores o iguales a 0.")
             .Validate(o => Enum.IsDefined(o.HorizonUnit), "Reservations:HorizonUnit inválido.")
+            .ValidateOnStart();
+        services.AddOptions<EmailOptions>().BindConfiguration(EmailOptions.SectionName)
+            .Validate(o => Enum.IsDefined(o.Mode), "Email:Mode inválido.")
+            .Validate<IHostEnvironment>((o, env) => o.Mode != EmailMode.Pickup ||
+                (env.IsDevelopment() && !string.IsNullOrWhiteSpace(o.PickupDirectory) && Path.IsPathFullyQualified(o.PickupDirectory)),
+                "Email:Pickup requiere Development y un PickupDirectory absoluto.")
+            .Validate(o => o.Mode != EmailMode.Smtp || (!string.IsNullOrWhiteSpace(o.Host) && o.Port is >= 1 and <= 65535),
+                "Configure Email:Host y Email:Port para Smtp.")
+            .Validate(o => o.Mode != EmailMode.BrevoApi || !string.IsNullOrWhiteSpace(o.ApiKey),
+                "Configure Email:ApiKey para BrevoApi.")
+            .Validate(o => o.Mode != EmailMode.BrevoApi ||
+                (Uri.TryCreate(o.ApiBaseUrl, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps),
+                "Configure Email:ApiBaseUrl con una URL absoluta https para BrevoApi.")
+            .Validate(o => o.Mode == EmailMode.Disabled || GymBackend.Application.Auth.InputRules.IsValidEmail(o.From),
+                "Configure Email:From con un correo válido.")
+            .ValidateOnStart();
+        services.AddOptions<AccountsOptions>().BindConfiguration(AccountsOptions.SectionName)
+            .Validate(o => o.ActivationHours > 0 && o.ResetMinutes > 0,
+                "Accounts:ActivationHours y Accounts:ResetMinutes deben ser positivos.")
+            .Validate<IOptions<EmailOptions>, IHostEnvironment>((o, email, env) =>
+                (email.Value.Mode == EmailMode.Disabled && string.IsNullOrEmpty(o.FrontendBaseUrl)) ||
+                (Uri.TryCreate(o.FrontendBaseUrl, UriKind.Absolute, out var uri) &&
+                    (uri.Scheme == Uri.UriSchemeHttps || (env.IsDevelopment() && uri.Scheme == Uri.UriSchemeHttp)) &&
+                    string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)),
+                "Configure Accounts:FrontendBaseUrl con una URL absoluta https (http solo en Development).")
             .ValidateOnStart();
         services.AddOptions<GymOptions>()
             .BindConfiguration(GymOptions.SectionName)
+            .Validate(o => o.MaxOccupancy > 0, "Gym:MaxOccupancy debe ser mayor que cero.")
             .Validate(o => TimeZoneInfo.TryFindSystemTimeZoneById(o.TimeZone, out _),
                 "Configure Gym:TimeZone con un identificador IANA válido (p. ej. America/Santiago).")
             .ValidateOnStart();
@@ -93,15 +123,34 @@ public static class ServiceCollectionExtensions
                 OnTokenValidated = async context =>
                 {
                     if (!int.TryParse(context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
+                    {
+                        context.Fail("La sesión no contiene un usuario válido.");
                         return;
+                    }
 
                     var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                    var enabled = await db.Users.AsNoTracking()
+                    var user = await db.Users.AsNoTracking()
                         .Where(user => user.Id == userId)
-                        .Select(user => (bool?)user.Enabled)
+                        .Select(user => new { user.Enabled, user.Role, user.SessionVersion, user.MustChangePassword, user.AccountStatus })
                         .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
-                    if (enabled == false)
+                    if (user is null || !int.TryParse(context.Principal?.FindFirst("sv")?.Value, out var version)
+                        || version != user.SessionVersion)
+                    {
+                        context.Fail("La sesi\u00f3n no es v\u00e1lida.");
+                        return;
+                    }
+                    if (user.Enabled == false || user.AccountStatus != GymBackend.Domain.AccountStatus.Activa)
                         context.Fail("El usuario no está habilitado.");
+                    if (user is not null && context.Principal?.Identity is ClaimsIdentity identity)
+                    {
+                        foreach (var claim in identity.FindAll(identity.RoleClaimType).ToArray())
+                            identity.RemoveClaim(claim);
+                        identity.AddClaim(new Claim(identity.RoleClaimType, user.Role));
+                        foreach (var claim in identity.FindAll(PendingPasswordChangeFilter.ClaimType).ToArray())
+                            identity.RemoveClaim(claim);
+                        if (user.MustChangePassword)
+                            identity.AddClaim(new Claim(PendingPasswordChangeFilter.ClaimType, "true"));
+                    }
                 },
             };
         });

@@ -39,6 +39,8 @@ public class ReservationsController : ControllerBase
     }
 
     [HttpPost]
+    [GymBackend.Security.Idempotent(required: false)]
+    [Authorize(Roles = Roles.Usuario + "," + Roles.Admin)]
     [ProducesResponseType<ReservationMessageResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]

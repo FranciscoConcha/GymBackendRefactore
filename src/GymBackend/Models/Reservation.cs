@@ -8,6 +8,8 @@ public class Reservation
     public User User { get; set; } = null!;
     public int ScheduleSlotId { get; set; }
     public ScheduleSlot ScheduleSlot { get; set; } = null!;
+    public string? CategoryAtBooking { get; set; }
+    public int? SportBranchIdAtBooking { get; set; }
     public DateOnly Date { get; set; }
     public ReservationStatus Status { get; set; } = ReservationStatus.Reserved;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

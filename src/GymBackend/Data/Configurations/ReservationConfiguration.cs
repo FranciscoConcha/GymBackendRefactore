@@ -9,6 +9,8 @@ public sealed class ReservationConfiguration : IEntityTypeConfiguration<Reservat
 {
     public void Configure(EntityTypeBuilder<Reservation> builder)
     {
+        builder.Property(x => x.CategoryAtBooking).HasMaxLength(20);
+        builder.HasOne<SportBranch>().WithMany().HasForeignKey(x => x.SportBranchIdAtBooking).OnDelete(DeleteBehavior.Restrict);
         builder.Property(x => x.Date).HasColumnType("date");
         builder.Property(x => x.CreatedAt).HasColumnType("timestamp with time zone");
         builder.Property(x => x.Status).HasMaxLength(16).HasConversion(

@@ -15,7 +15,7 @@ Requisito: Docker Compose. El entorno Compose está configurado para desarrollo 
 3. Opcionalmente, completa `JWT_ISSUER` y `JWT_AUDIENCE` para personalizar sus valores. Para crear un administrador inicial, completa `BOOTSTRAP_ADMIN_RUT`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_USERNAME` y `BOOTSTRAP_ADMIN_PASSWORD`. El RUT debe incluir un dígito verificador válido; la contraseña debe tener al menos 16 caracteres. Sin esos cuatro datos no se crea una cuenta administrativa.
 4. Ejecuta `docker compose up --build -d`.
 
-La API queda disponible en `http://localhost:5008`; Swagger está disponible en `/swagger` solo en Development. Si ya existía un volumen de base de datos anterior a F5, recréalo con `docker compose down -v` antes de iniciar el entorno. La base de datos no publica un puerto al host.
+El frontend (React, carpeta `frontend/`) queda en `http://localhost:8080` (puerto configurable con `FRONTEND_PORT`): su Nginx reenvía `/api/` a la API en el **mismo origen**, de modo que la cookie de sesión `SameSite=Strict` viaja sin CORS. La API queda además disponible en `http://localhost:5008`; Swagger está disponible en `/swagger` solo en Development. Si ya existía un volumen de base de datos anterior a F5, recréalo con `docker compose down -v` antes de iniciar el entorno. La base de datos no publica un puerto al host.
 
 ## Configuración
 
@@ -41,6 +41,11 @@ Los valores pueden suministrarse mediante variables de entorno usando doble guio
 | `Bootstrap:AdminEmail` | Sin valor | Correo del administrador inicial. |
 | `Bootstrap:AdminUsername` | Sin valor | Usuario del administrador inicial. |
 | `Bootstrap:AdminPassword` | Sin valor | Contraseña de al menos 16 caracteres para el administrador inicial. |
+
+## Correo
+
+Para enviar el outbox por Brevo configura `EMAIL_MODE=BrevoApi`, `EMAIL_API_KEY` con la clave de API y `EMAIL_FROM` con un remitente validado; `EMAIL_FROM_NAME` vale `UCN Gym` por defecto.
+Configura también `Accounts:FrontendBaseUrl`; `Email:ApiBaseUrl` requiere HTTPS y vale `https://api.brevo.com/`. Los modos Disabled, Pickup y Smtp siguen disponibles.
 
 ## API
 

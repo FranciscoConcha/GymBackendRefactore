@@ -16,21 +16,7 @@ public static class DevelopmentSeeder
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync(ct);
-        if (!await db.ScheduleSlots.AnyAsync(ct))
-        {
-            var days = new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday };
-            var ranges = new[] { (Start: "08:00", End: "09:30"), (Start: "09:30", End: "11:00"), (Start: "11:00", End: "12:30"), (Start: "13:00", End: "14:30") };
-            db.ScheduleSlots.AddRange(days.SelectMany(day => ranges.Select(range => new ScheduleSlot
-            {
-                Day = day,
-                StartTime = TimeOnly.ParseExact(range.Start, "HH:mm", System.Globalization.CultureInfo.InvariantCulture),
-                EndTime = TimeOnly.ParseExact(range.End, "HH:mm", System.Globalization.CultureInfo.InvariantCulture),
-                Zone = Zones.Default,
-                Capacity = 20,
-                Enabled = true,
-            })));
-            await db.SaveChangesAsync(ct);
-        }
+        var clock = scope.ServiceProvider.GetRequiredService<GymBackend.Time.IGymClock>();
         var bootstrap = scope.ServiceProvider.GetRequiredService<IOptions<BootstrapOptions>>().Value;
         var adminPassword = bootstrap.AdminPassword;
         if (!await db.Users.AnyAsync(user => user.Role == Roles.Admin, ct) && !string.IsNullOrWhiteSpace(adminPassword))
@@ -44,12 +30,15 @@ public static class DevelopmentSeeder
             db.Users.Add(new User
             {
                 Rut = rut,
-                Name = UserTypes.Administrator,
+                FirstName = "Administrador",
+                LastName = "Sistema",
+                CreatedAt = clock.UtcNow,
+                UpdatedAt = clock.UtcNow,
                 Email = email.Trim().ToLowerInvariant(),
                 Username = username.Trim().ToLowerInvariant(),
                 PasswordHash = passwordHasher.Hash(adminPassword),
-                UserType = UserTypes.Administrator,
                 Role = Roles.Admin,
+                MustChangePassword = false,
                 Enabled = true,
             });
             await db.SaveChangesAsync(ct);

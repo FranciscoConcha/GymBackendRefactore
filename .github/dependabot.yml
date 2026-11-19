@@ -8,6 +8,14 @@ updates:
       dotnet:
         patterns: ["*"]
     target-branch: dev
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend:
+        patterns: ["*"]
+    target-branch: dev
   - package-ecosystem: github-actions
     directory: /
     schedule:
