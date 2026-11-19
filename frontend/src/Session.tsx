@@ -1,4 +1,5 @@
-﻿import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { SelectField } from "./components/SelectField";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Dumbbell } from "lucide-react";
 import {
@@ -156,21 +157,20 @@ function Login({
           <span className="eyebrow">UNIVERSIDAD CATÓLICA DEL NORTE</span>
           <h2>Accede a tu espacio</h2>
           <p className="intro">Selecciona tu portal.</p>
-          <label className="field">
-            Portal
-            <select
-              value={staff ? "staff" : "user"}
-              onChange={(e) => {
-                setStaff(e.target.value === "staff");
-                setIdentifier("");
-              }}
-            >
-              <option value="user">Usuario / Estudiante</option>
-              <option value="staff">
-                Personal · Administrador / Recepcionista
-              </option>
-            </select>
-          </label>
+          <SelectField
+            label="Portal"
+            fieldClassName="field"
+            value={staff ? "staff" : "user"}
+            onChange={(e) => {
+              setStaff(e.target.value === "staff");
+              setIdentifier("");
+            }}
+          >
+            <option value="user">Usuario / Estudiante</option>
+            <option value="staff">
+              Personal · Administrador / Recepcionista
+            </option>
+          </SelectField>
           <label className="field">
             {staff ? "Nombre de usuario" : "RUT"}
             <input

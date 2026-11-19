@@ -18,7 +18,9 @@ test("acceso en dos pasos; salida por persona sin reutilizar QR", async ({
   await expect(
     page.getByRole("button", { name: "Registrar entrada" }),
   ).toBeDisabled();
-  await page.getByLabel("Documento presentado").selectOption("TNE");
+  await page
+    .getByLabel("Documento presentado", { exact: true })
+    .selectOption("TNE");
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Registrar entrada" }).click();
   await expect(

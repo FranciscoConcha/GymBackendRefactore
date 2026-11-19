@@ -1,3 +1,4 @@
+import { SelectField } from "./components/SelectField";
 import {
   useEffect,
   useLayoutEffect,
@@ -1169,18 +1170,17 @@ function Reservations({
   return (
     <>
       {admin && (
-        <label className="field branch-filter">
-          Rama deportiva
-          <select
-            value={branch}
-            onChange={(event) => setBranch(event.target.value)}
-          >
-            <option value="">Todas las ramas</option>
-            {branches.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </label>
+        <SelectField
+          label="Rama deportiva"
+          fieldClassName="field branch-filter"
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+        >
+          <option value="">Todas las ramas</option>
+          {branches.map((value) => (
+            <option key={value}>{value}</option>
+          ))}
+        </SelectField>
       )}
       <div className="filter-tabs" aria-label="Estado de reservas">
         {filters.map((f) => (
@@ -1283,19 +1283,18 @@ function QrPanel({
     <div className="qr-layout">
       <section className="card qr-card">
         <Brand />
-        <label className="field">
-          Reserva
-          <select
-            value={selected.key}
-            onChange={(e) => setSelectedId(e.target.value)}
-          >
-            {choices.map((r) => (
-              <option key={r.key} value={r.key}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SelectField
+          label="Reserva"
+          fieldClassName="field"
+          value={selected.key}
+          onChange={(e) => setSelectedId(e.target.value)}
+        >
+          {choices.map((r) => (
+            <option key={r.key} value={r.key}>
+              {r.label}
+            </option>
+          ))}
+        </SelectField>
         <BlockQr id={selected.id} group={selected.group} />
       </section>
       <aside className="qr-instructions">
@@ -1587,19 +1586,18 @@ function MemberForm({
       onClose={onClose}
     >
       <form onSubmit={submit} className="member-form">
-        <label className="field">
-          Rol
-          <select
-            value={memberRole}
-            onChange={(e) =>
-              setMemberRole(e.target.value as import("./api").Role)
-            }
-          >
-            {["Usuario", "Admin", "Recepcionista"].map((r) => (
-              <option key={r}>{r}</option>
-            ))}
-          </select>
-        </label>
+        <SelectField
+          label="Rol"
+          fieldClassName="field"
+          value={memberRole}
+          onChange={(e) =>
+            setMemberRole(e.target.value as import("./api").Role)
+          }
+        >
+          {["Usuario", "Admin", "Recepcionista"].map((r) => (
+            <option key={r}>{r}</option>
+          ))}
+        </SelectField>
         {memberRole !== "Usuario" && (
           <label className="field">
             Nombre de usuario
@@ -1668,35 +1666,33 @@ function MemberForm({
             maxLength={200}
           />
         </label>
-        <label className="field">
-          Categoría
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </label>
+        <SelectField
+          label="Categoría"
+          fieldClassName="field"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          {CATEGORIES.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </SelectField>
         {memberRole === "Usuario" && category === "Deportista" && (
-          <label className="field">
-            Rama deportiva
-            <select
-              required
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-            >
-              <option value="">Selecciona una rama</option>
-              {branches
-                .filter((b) => b.enabled || b.id === initial?.branchId)
-                .map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <SelectField
+            label="Rama deportiva"
+            fieldClassName="field"
+            required
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+          >
+            <option value="">Selecciona una rama</option>
+            {branches
+              .filter((b) => b.enabled || b.id === initial?.branchId)
+              .map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+          </SelectField>
         )}
         {error && (
           <p className="form-error" role="alert">

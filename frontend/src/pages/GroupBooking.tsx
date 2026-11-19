@@ -1,4 +1,5 @@
-﻿import { useRef, useState } from "react";
+import { SelectField } from "../components/SelectField";
+import { useRef, useState } from "react";
 import { CalendarDays, Users } from "lucide-react";
 import { api, type GroupBookingRequest } from "../api";
 import { getDays, hasStarted, remaining, shortDate, slotFrom } from "../domain";
@@ -80,26 +81,25 @@ export default function GroupBooking({ admin }: { admin: boolean }) {
             loading={branches.loading || schedules.loading}
           />
           <div className="form-grid">
-            <label className="field">
-              Rama deportiva
-              <select
-                required
-                value={branch}
-                onChange={(e) => {
-                  setBranch(e.target.value);
-                  attempt.current = null;
-                }}
-              >
-                <option value="">Selecciona una rama</option>
-                {branches.data
-                  ?.filter((b) => b.enabled)
-                  .map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <SelectField
+              label="Rama deportiva"
+              fieldClassName="field"
+              required
+              value={branch}
+              onChange={(e) => {
+                setBranch(e.target.value);
+                attempt.current = null;
+              }}
+            >
+              <option value="">Selecciona una rama</option>
+              {branches.data
+                ?.filter((b) => b.enabled)
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+            </SelectField>
             <label className="field">
               Fecha
               <input
@@ -114,37 +114,35 @@ export default function GroupBooking({ admin }: { admin: boolean }) {
               />
             </label>
           </div>
-          <label className="field">
-            Horario
-            <select
-              required
-              value={slotId}
-              onChange={(e) => {
-                setSlotId(e.target.value);
-                attempt.current = null;
-              }}
-            >
-              <option value="">Selecciona un bloque</option>
-              {schedules.data?.map(slotFrom).map((s) => (
-                <option value={s.id} key={s.id} disabled={hasStarted(s)}>
-                  {s.start} a {s.end} · {remaining(s)} cupos
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Modo
-            <select
-              value={mode}
-              onChange={(e) => {
-                setMode(e.target.value as GroupBookingRequest["mode"]);
-                attempt.current = null;
-              }}
-            >
-              <option value="Cupos">Por cantidad de cupos</option>
-              <option value="TotalDisponible">Todo el cupo disponible</option>
-            </select>
-          </label>
+          <SelectField
+            label="Horario"
+            fieldClassName="field"
+            required
+            value={slotId}
+            onChange={(e) => {
+              setSlotId(e.target.value);
+              attempt.current = null;
+            }}
+          >
+            <option value="">Selecciona un bloque</option>
+            {schedules.data?.map(slotFrom).map((s) => (
+              <option value={s.id} key={s.id} disabled={hasStarted(s)}>
+                {s.start} a {s.end} · {remaining(s)} cupos
+              </option>
+            ))}
+          </SelectField>
+          <SelectField
+            label="Modo"
+            fieldClassName="field"
+            value={mode}
+            onChange={(e) => {
+              setMode(e.target.value as GroupBookingRequest["mode"]);
+              attempt.current = null;
+            }}
+          >
+            <option value="Cupos">Por cantidad de cupos</option>
+            <option value="TotalDisponible">Todo el cupo disponible</option>
+          </SelectField>
           {mode === "Cupos" && (
             <label className="field">
               Cantidad de cupos

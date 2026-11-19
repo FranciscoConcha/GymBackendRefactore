@@ -1,4 +1,5 @@
-﻿import { lazy, Suspense, useRef, useState } from "react";
+import { SelectField } from "../components/SelectField";
+import { lazy, Suspense, useRef, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ScanLine } from "lucide-react";
 import { api, type AccessValidation, type DocumentType } from "../api";
 import { formatRut, shortDate } from "../domain";
@@ -158,24 +159,23 @@ export default function AccessPanel() {
                   {validation.occupancy.max}
                 </p>
                 {validation.reason && <p role="status">{validation.reason}</p>}
-                <label className="field">
-                  Documento presentado
-                  <select
-                    value={documentType}
-                    disabled={busy}
-                    onChange={(e) => {
-                      setDocumentType(e.target.value as DocumentType);
-                      setVerified(false);
-                      attempt.current = null;
-                    }}
-                  >
-                    <option value="CarnetIdentidad">Carnet</option>
-                    <option value="TNE">TNE</option>
-                    <option value="CredencialUniversitaria">
-                      Credencial universitaria
-                    </option>
-                  </select>
-                </label>
+                <SelectField
+                  label="Documento presentado"
+                  fieldClassName="field"
+                  value={documentType}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setDocumentType(e.target.value as DocumentType);
+                    setVerified(false);
+                    attempt.current = null;
+                  }}
+                >
+                  <option value="CarnetIdentidad">Carnet</option>
+                  <option value="TNE">TNE</option>
+                  <option value="CredencialUniversitaria">
+                    Credencial universitaria
+                  </option>
+                </SelectField>
                 <label className="identity-check">
                   <input
                     type="checkbox"
@@ -233,21 +233,20 @@ export default function AccessPanel() {
               });
             }}
           >
-            <label className="field">
-              Persona dentro
-              <select
-                required
-                value={exitUser}
-                onChange={(e) => setExitUser(e.target.value)}
-              >
-                <option value="">Selecciona una persona</option>
-                {current.data?.people.map((p) => (
-                  <option key={p.userId} value={p.userId}>
-                    {p.fullName} · {p.rut}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              label="Persona dentro"
+              fieldClassName="field"
+              required
+              value={exitUser}
+              onChange={(e) => setExitUser(e.target.value)}
+            >
+              <option value="">Selecciona una persona</option>
+              {current.data?.people.map((p) => (
+                <option key={p.userId} value={p.userId}>
+                  {p.fullName} · {p.rut}
+                </option>
+              ))}
+            </SelectField>
             <button className="button" disabled={busy || !exitUser}>
               Registrar salida
             </button>

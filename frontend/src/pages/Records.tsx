@@ -1,4 +1,5 @@
-﻿import { useState } from "react";
+import { SelectField } from "../components/SelectField";
+import { useState } from "react";
 import { api, type ReportFilters } from "../api";
 import { CATEGORIES, shortDate } from "../domain";
 import { LoadStatus, useApiData } from "../remote";
@@ -28,37 +29,35 @@ export function ReportFilterFields({
           onChange={(e) => onChange({ ...value, to: e.target.value })}
         />
       </label>
-      <label className="field">
-        Rama deportiva
-        <select
-          value={value.branchId ?? ""}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              branchId: e.target.value ? Number(e.target.value) : undefined,
-            })
-          }
-        >
-          <option value="">Todas las ramas</option>
-          {branches.data?.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        Categoría
-        <select
-          value={value.category ?? ""}
-          onChange={(e) => onChange({ ...value, category: e.target.value })}
-        >
-          <option value="">Todas las categorías</option>
-          {CATEGORIES.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
-        </select>
-      </label>
+      <SelectField
+        label="Rama deportiva"
+        fieldClassName="field"
+        value={value.branchId ?? ""}
+        onChange={(e) =>
+          onChange({
+            ...value,
+            branchId: e.target.value ? Number(e.target.value) : undefined,
+          })
+        }
+      >
+        <option value="">Todas las ramas</option>
+        {branches.data?.map((b) => (
+          <option key={b.id} value={b.id}>
+            {b.name}
+          </option>
+        ))}
+      </SelectField>
+      <SelectField
+        label="Categoría"
+        fieldClassName="field"
+        value={value.category ?? ""}
+        onChange={(e) => onChange({ ...value, category: e.target.value })}
+      >
+        <option value="">Todas las categorías</option>
+        {CATEGORIES.map((c) => (
+          <option key={c}>{c}</option>
+        ))}
+      </SelectField>
       <LoadStatus error={branches.error} loading={branches.loading} />
     </div>
   );

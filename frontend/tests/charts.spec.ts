@@ -51,8 +51,19 @@ test("métricas del servidor con filtros y aforo global", async ({ page }) => {
 });
 test("error de métricas se muestra sin datos inventados", async ({ page }) => {
   const mock = await mockApi(page, { role: "Admin" });
-  mock.failNext("/admin/metrics", 500, "Métricas no disponibles.");
+  // StrictMode can request metrics twice on mount; both must fail.
+  await page.route("**/api/v1/admin/metrics*", (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "Métricas no disponibles." }),
+    }),
+  );
   await page.goto("/admin/inicio");
   await expect(page.getByRole("alert")).toHaveText("Métricas no disponibles.");
   await expect(page.locator(".metric-card")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Demanda por horario" }),
+  ).toHaveCount(0);
+  expect(mock.unknown).toEqual([]);
 });

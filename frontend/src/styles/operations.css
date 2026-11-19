@@ -270,6 +270,9 @@
   font-size: 11px;
   margin-top: 8px;
 }
+.excel-layout > .card {
+  min-width: 0;
+}
 .excel-layout > .card > .muted {
   font-size: 13px;
   margin: 20px 0;

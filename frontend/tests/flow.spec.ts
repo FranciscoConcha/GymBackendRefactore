@@ -24,7 +24,10 @@ test("sesión real, reserva, QR por bloque, cancelación y almacenamiento vacío
   await expect(page.locator(".reservation-row .badge")).toHaveText("Cancelado");
   await navigate(page, "Mis visitas");
   await expect(
-    page.getByRole("heading", { name: "Mis visitas", exact: true }),
+    page.getByRole("heading", {
+      name: "Historial de mis visitas",
+      exact: true,
+    }),
   ).toBeVisible();
   expect(
     await page.evaluate(() => ({
