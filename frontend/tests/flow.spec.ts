@@ -274,6 +274,14 @@ test("QR abierto alterna entrada, salida y entrada con refresco automático", as
   ).toBeVisible();
   await expect(page.locator(".ticket-code")).toHaveText("signed-R-1");
   await navigate(page, "Mis visitas");
+  await expect(
+    page.getByRole("heading", {
+      name: "Historial de mis visitas",
+      exact: true,
+    }),
+  ).toBeVisible();
+  // Una consulta iniciada justo antes de salir puede completarse tras la navegación; se mide desde aquí.
+  await page.clock.runFor(1000);
   const queries = mock.calls.filter((c) => c.path.endsWith("/qr")).length;
   await page.clock.runFor(10000);
   expect(mock.calls.filter((c) => c.path.endsWith("/qr"))).toHaveLength(
