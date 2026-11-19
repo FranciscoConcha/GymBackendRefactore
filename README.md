@@ -13,6 +13,7 @@ Requisito: Docker Compose. El entorno Compose está configurado para desarrollo 
 1. Copia `.env.example` como `.env`.
 2. Define `POSTGRES_PASSWORD`, `JWT_KEY` y `QR_SIGNING_KEY`. Las claves deben tener al menos 32 caracteres; `QR_SIGNING_KEY` debe ser distinta de `JWT_KEY`. Puedes generar valores con `openssl rand -hex 32`.
 3. Opcionalmente, completa `JWT_ISSUER` y `JWT_AUDIENCE` para personalizar sus valores. Para crear un administrador inicial, completa `BOOTSTRAP_ADMIN_RUT`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_USERNAME` y `BOOTSTRAP_ADMIN_PASSWORD`. El RUT debe incluir un dígito verificador válido; la contraseña debe tener al menos 16 caracteres. Sin esos cuatro datos no se crea una cuenta administrativa.
+   Los Admin adicionales los crea un Admin por invitación, sin contraseña temporal.
 4. Ejecuta `docker compose up --build -d`.
 
 El frontend (React, carpeta `frontend/`) queda en `http://localhost:8080` (puerto configurable con `FRONTEND_PORT`): su Nginx reenvía `/api/` a la API en el **mismo origen**, de modo que la cookie de sesión `SameSite=Strict` viaja sin CORS. La API queda además disponible en `http://localhost:5008`; Swagger está disponible en `/swagger` solo en Development. Si ya existía un volumen de base de datos anterior a F5, recréalo con `docker compose down -v` antes de iniciar el entorno. La base de datos no publica un puerto al host.

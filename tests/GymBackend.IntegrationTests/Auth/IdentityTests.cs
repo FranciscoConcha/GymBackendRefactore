@@ -34,13 +34,13 @@ public sealed class IdentityTests(GymApiFactory factory)
     }
 
     private static object Registration(string role = Roles.Usuario, string? category = UserCategories.Estudiante,
-        int? sportBranchId = null, string? username = null) => new
+        int? sportBranchId = null, string? username = null, string? password = "Password123!") => new
         {
             rut = TestData.NextRut(),
             firstName = "Identity",
             lastName = "Test",
             email = $"identity-{Guid.NewGuid():N}@example.test",
-            password = "Password123!",
+            password,
             role,
             category,
             sportBranchId,
@@ -125,6 +125,32 @@ public sealed class IdentityTests(GymApiFactory factory)
     }
 
     [Fact]
+    public async Task Registration_AdminWithoutPassword_IsPendingInvitedAndAudited()
+    {
+        using var admin = await factory.CreateAdminClientAsync();
+        var response = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register",
+            Registration(role: Roles.Admin, category: null, username: $"admin-{Guid.NewGuid():N}", password: null), JsonOptions, Ct), HttpStatusCode.OK);
+        var id = response.GetProperty("user").GetProperty("id").GetInt32();
+        var user = await factory.WithDbAsync(db => db.Users.SingleAsync(u => u.Id == id, Ct));
+        Assert.Equal(Roles.Admin, user.Role);
+        Assert.Equal(AccountStatus.Pendiente, user.AccountStatus);
+        Assert.Equal(string.Empty, user.PasswordHash);
+        Assert.True(await factory.WithDbAsync(db => db.EmailOutbox.AnyAsync(e => e.To == user.Email, Ct)));
+        var target = id.ToString(CultureInfo.InvariantCulture);
+        Assert.True(await factory.WithDbAsync(db => db.AuditEvents.AnyAsync(a => a.TargetType == "User" && a.TargetId == target && a.Action == "user.created", Ct)));
+    }
+
+    [Fact]
+    public async Task Registration_ReceptionistCannotInviteAdmin()
+    {
+        var receptionist = await factory.CreateReceptionistClientAsync();
+        using var staff = receptionist.Client;
+        using var response = await staff.PostAsJsonAsync("/api/v1/auth/register",
+            Registration(role: Roles.Admin, category: null, username: "admin", password: null), JsonOptions, Ct);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Registration_EnforcesIdentityCoherence()
     {
         using var admin = await factory.CreateAdminClientAsync();
@@ -140,7 +166,7 @@ public sealed class IdentityTests(GymApiFactory factory)
             Registration(role: Roles.Recepcionista, category: null),
             Registration(role: Roles.Recepcionista, username: "reception"),
             Registration(role: Roles.Recepcionista, category: null, sportBranchId: enabled, username: "reception"),
-            Registration(role: Roles.Admin, category: null, username: "admin"),
+            Registration(role: Roles.Admin, category: null, username: "admin", password: "Password123!"),
         }) await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", payload, JsonOptions, Ct), HttpStatusCode.BadRequest);
         var user = (await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register",
             Registration(category: UserCategories.Deportista, sportBranchId: enabled), JsonOptions, Ct), HttpStatusCode.OK)).GetProperty("user");

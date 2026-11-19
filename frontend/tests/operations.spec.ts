@@ -183,6 +183,34 @@ test("usuarios y ramas se administran mediante mutaciones CSRF", async ({
   expect(
     mock.calls.find((c) => c.path === "/auth/register")?.body,
   ).not.toHaveProperty("password");
+  await page
+    .getByRole("button", { name: "Agregar usuario", exact: true })
+    .click();
+  const adminDialog = page.getByRole("dialog", { name: "Agregar usuario" });
+  await adminDialog.getByLabel("Rol", { exact: true }).selectOption("Admin");
+  await expect(
+    adminDialog.getByLabel("Contraseña temporal (opcional)"),
+  ).toHaveCount(0);
+  await expect(
+    adminDialog.getByText("recibirá una invitación por correo"),
+  ).toBeVisible();
+  await adminDialog
+    .getByLabel("Nombre de usuario", { exact: true })
+    .fill("nuevo.admin");
+  await adminDialog.getByLabel("Nombre", { exact: true }).fill("Ana");
+  await adminDialog.getByLabel("Apellido", { exact: true }).fill("Soto");
+  await adminDialog.getByLabel("RUT", { exact: true }).fill("22.222.222-2");
+  await adminDialog
+    .getByLabel("Correo", { exact: true })
+    .fill("ana@example.invalid");
+  await adminDialog
+    .getByRole("button", { name: "Agregar usuario", exact: true })
+    .click();
+  await expect(adminDialog).toHaveCount(0);
+  const adminBody = mock.calls.filter((c) => c.path === "/auth/register")[1]
+    ?.body;
+  expect(adminBody).toMatchObject({ role: "Admin", username: "nuevo.admin" });
+  expect(adminBody).not.toHaveProperty("password");
   expect(mock.csrfFailures).toEqual([]);
 });
 

@@ -841,7 +841,7 @@ function Workspace({ user }: { user: UserResponse }) {
                 await api.register({
                   ...body,
                   rut: data.rut,
-                  ...(password ? { password } : {}),
+                  ...(body.role !== "Admin" && password ? { password } : {}),
                 });
               refresh();
               setShowMember(false);
@@ -1594,9 +1594,13 @@ function MemberForm({
             setMemberRole(e.target.value as import("./api").Role)
           }
         >
-          {["Usuario", "Admin", "Recepcionista"].map((r) => (
-            <option key={r}>{r}</option>
-          ))}
+          {["Usuario", "Admin", "Recepcionista"]
+            .filter(
+              (r) => r !== "Admin" || !initial || initial.role === "Admin",
+            )
+            .map((r) => (
+              <option key={r}>{r}</option>
+            ))}
         </SelectField>
         {memberRole !== "Usuario" && (
           <label className="field">
@@ -1608,7 +1612,13 @@ function MemberForm({
             />
           </label>
         )}
-        {!initial && (
+        {!initial && memberRole === "Admin" && (
+          <p>
+            El administrador recibirá una invitación por correo para definir su
+            contraseña.
+          </p>
+        )}
+        {!initial && memberRole !== "Admin" && (
           <label className="field">
             Contraseña temporal (opcional)
             <input

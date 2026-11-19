@@ -52,7 +52,7 @@ public sealed class AuthTests(GymApiFactory factory)
     {
         using var admin = await factory.CreateAdminClientAsync();
         await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register", Registration(TestData.NextRut(), role: type), JsonOptions, Ct),
-            HttpStatusCode.BadRequest, "Los administradores deben crearse por un proceso controlado.");
+            HttpStatusCode.BadRequest, "Los administradores se crean por invitación, sin contraseña temporal.");
     }
 
     [Fact]
