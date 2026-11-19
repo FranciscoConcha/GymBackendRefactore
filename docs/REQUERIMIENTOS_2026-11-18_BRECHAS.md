@@ -59,9 +59,9 @@ Leyenda: ✅ cumple · 🟡 parcial · ❌ no cumple
 | Requisito | Estado | Situación actual |
 |---|---|---|
 | Entrada desde 15 min antes | ✅ | `ScheduleWindow.Tolerance` = 15 min. |
-| Sin ingreso después del fin | ❌ | La ventana acepta hasta **15 min después** del fin (lo que §7 pide no asumir). |
+| Sin ingreso después del fin | ✅ | Ventana `[inicio − 15 min, fin)` (PR #29). |
 | Entradas/salidas ilimitadas, una fila por visita | ❌ | Una entrada y una salida por día; no hay reingreso. |
-| Salida permitida a cuenta deshabilitada que está dentro | ❌ | `RegisterExitAsync` rechaza al usuario deshabilitado (caso §17.17). |
+| Salida permitida a cuenta deshabilitada que está dentro | ✅ | Permitida aunque la sesión haya terminado (PR #29). |
 | Registrar tipo de documento revisado, operador y motivo de rechazo | 🟡 | Se guarda el RUT del operador; no el documento ni los rechazos. |
 
 ## §8 QR e identificación
@@ -108,13 +108,13 @@ pide acordarlas antes de conectar React. La API ya está versionada, así que pu
 |---|---|---|---|---|---|---|---|
 | 1 | ✅ | 8 | ❌ | 15 | ❌ | 22 | ❌ |
 | 2 | ❌ | 9 | ❌ | 16 | 🟡 manipulado/vencido ✅; por reserva n/a | 23 | ❌ |
-| 3 | ❌ | 10 | ✅ | 17 | ❌ | 24 | ❌ |
-| 4 | ✅ | 11 | ❌ (+15 min) | 18 | ❌ | 25 | ❌ |
+| 3 | ❌ | 10 | ✅ | 17 | ✅ | 24 | ❌ |
+| 4 | ✅ | 11 | ✅ | 18 | ❌ | 25 | ❌ |
 | 5 | 🟡 sin categoría | 12 | ❌ | 19 | ❌ | 26 | ❌ |
 | 6 | ❌ | 13 | ❌ | 20 | ❌ | 27 | ❌ |
 | 7 | ❌ (planes pendientes) | 14 | ❌ | 21 | ❌ | 28 | ❌ |
 
-Total: 3 ✅, 3 🟡, 22 ❌.
+Total: 5 ✅, 3 🟡, 20 ❌ (tras PR #29).
 
 ## Propuesta de siguiente fase (requiere decisiones de §18)
 1. **F7 – Modelo de identidad:** roles con Recepcionista, categorías, ramas, nombre/apellido, estados de cuenta, auditoría.
