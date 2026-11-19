@@ -27,6 +27,8 @@ services:
       Cors__AllowedOrigins__0: http://localhost:4173
       Cors__AllowedOrigins__1: http://localhost:${FRONTEND_PORT:-8080}
       Accounts__FrontendBaseUrl: ${ACCOUNTS_FRONTEND_BASE_URL:-http://localhost:8080}
+      Email__ApiKey: ${EMAIL_API_KEY:-}
+      Email__FromName: ${EMAIL_FROM_NAME:-UCN Gym}
       Email__Mode: ${EMAIL_MODE:-Pickup}
       Email__PickupDirectory: ${EMAIL_PICKUP_DIRECTORY:-/app/mail}
       Email__Host: ${EMAIL_HOST:-}

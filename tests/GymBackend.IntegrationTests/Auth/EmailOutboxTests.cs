@@ -25,11 +25,13 @@ public sealed class EmailOutboxTests
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero));
         var settings = new EmailOptions { Mode = EmailMode.Disabled, PickupDirectory = directory };
         var services = new ServiceCollection();
+        services.AddHttpClient("brevo", client => client.BaseAddress = new Uri("https://brevo.example.test/")).ConfigurePrimaryHttpMessageHandler(() => new FakeBrevoHandler());
         services.AddDbContext<AppDbContext>(o => o.UseNpgsql(postgres.GetConnectionString()));
         services.AddSingleton<TimeProvider>(clock);
         services.AddSingleton<IGymClock>(new GymClock(clock, Microsoft.Extensions.Options.Options.Create(new GymOptions())));
         await using var provider = services.BuildServiceProvider();
-        var dispatcher = new EmailOutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), Microsoft.Extensions.Options.Options.Create(settings), clock);
+        var dispatcher = new EmailOutboxDispatcher(provider.GetRequiredService<IServiceScopeFactory>(), Microsoft.Extensions.Options.Options.Create(settings), clock,
+            new BrevoApiEmailSender(provider.GetRequiredService<IHttpClientFactory>(), Microsoft.Extensions.Options.Options.Create(settings)));
         try
         {
             await using (var scope = provider.CreateAsyncScope())
@@ -66,6 +68,39 @@ public sealed class EmailOutboxTests
             Assert.Equal(1, sent.AttemptCount);
             Assert.Null(sent.LastError);
 
+            settings.Mode = EmailMode.BrevoApi;
+            settings.ApiKey = "test-api-secret";
+            await using (var apiScope = provider.CreateAsyncScope())
+            {
+                var apiDb = apiScope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var apiMail = new EmailOutbox
+                {
+                    To = "api@example.test",
+                    Subject = "API",
+                    Body = "Private body",
+                    CreatedAt = clock.GetUtcNow(),
+                    NextAttemptAt = clock.GetUtcNow(),
+                };
+                apiDb.EmailOutbox.Add(apiMail);
+                await apiDb.SaveChangesAsync(TestContext.Current.CancellationToken);
+                await dispatcher.DispatchPendingAsync(TestContext.Current.CancellationToken);
+                await apiDb.Entry(apiMail).ReloadAsync(TestContext.Current.CancellationToken);
+                Assert.NotNull(apiMail.SentAt);
+                Assert.Equal(1, apiMail.AttemptCount);
+                Assert.Null(apiMail.LastError);
+                apiMail.SentAt = null;
+                apiMail.To = "fail@example.test";
+                await apiDb.SaveChangesAsync(TestContext.Current.CancellationToken);
+                await dispatcher.DispatchPendingAsync(TestContext.Current.CancellationToken);
+                await apiDb.Entry(apiMail).ReloadAsync(TestContext.Current.CancellationToken);
+                Assert.Null(apiMail.SentAt);
+                Assert.Equal(2, apiMail.AttemptCount);
+                Assert.Equal("No se pudo enviar el correo.", apiMail.LastError);
+                // Keep the failing API row out of the existing Pickup retry scenario.
+                apiMail.SentAt = clock.GetUtcNow();
+                await apiDb.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+            settings.Mode = EmailMode.Pickup;
             var blockedPath = Path.Combine(directory, "blocked");
             await File.WriteAllTextAsync(blockedPath, "This is a file, not a pickup directory.", TestContext.Current.CancellationToken);
             settings.PickupDirectory = blockedPath;
@@ -103,6 +138,16 @@ public sealed class EmailOutboxTests
         {
             dispatcher.Dispose();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+    private sealed class FakeBrevoHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Assert.Equal("test-api-secret", Assert.Single(request.Headers.GetValues("api-key")));
+            return new HttpResponseMessage(body.Contains("fail@example.test", StringComparison.Ordinal)
+                ? System.Net.HttpStatusCode.Unauthorized : System.Net.HttpStatusCode.Created);
         }
     }
 }

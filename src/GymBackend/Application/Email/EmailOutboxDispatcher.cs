@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace GymBackend.Application.Email;
 
 public sealed class EmailOutboxDispatcher(IServiceScopeFactory scopes, IOptions<EmailOptions> options,
-    TimeProvider timeProvider) : BackgroundService
+    TimeProvider timeProvider, BrevoApiEmailSender brevoSender) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -63,8 +63,13 @@ public sealed class EmailOutboxDispatcher(IServiceScopeFactory scopes, IOptions<
         }
     }
 
-    private static async Task SendAsync(EmailOutbox email, EmailOptions settings, CancellationToken ct)
+    private async Task SendAsync(EmailOutbox email, EmailOptions settings, CancellationToken ct)
     {
+        if (settings.Mode == EmailMode.BrevoApi)
+        {
+            await brevoSender.SendAsync(email, ct);
+            return;
+        }
         using var message = new MailMessage(settings.From, email.To, email.Subject, email.Body)
         {
             IsBodyHtml = false,

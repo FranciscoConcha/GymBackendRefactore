@@ -42,6 +42,11 @@ Los valores pueden suministrarse mediante variables de entorno usando doble guio
 | `Bootstrap:AdminUsername` | Sin valor | Usuario del administrador inicial. |
 | `Bootstrap:AdminPassword` | Sin valor | Contraseña de al menos 16 caracteres para el administrador inicial. |
 
+## Correo
+
+Para enviar el outbox por Brevo configura `EMAIL_MODE=BrevoApi`, `EMAIL_API_KEY` con la clave de API y `EMAIL_FROM` con un remitente validado; `EMAIL_FROM_NAME` vale `UCN Gym` por defecto.
+Configura también `Accounts:FrontendBaseUrl`; `Email:ApiBaseUrl` requiere HTTPS y vale `https://api.brevo.com/`. Los modos Disabled, Pickup y Smtp siguen disponibles.
+
 ## API
 
 Todas las rutas de controladores tienen el prefijo `/api/v1`; las rutas antiguas `/api/...` no están mapeadas y responden 404.
