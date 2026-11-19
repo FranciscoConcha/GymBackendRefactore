@@ -138,6 +138,20 @@ Decisiones H6 (2026-11-18): RUT canónico `12345678-5` (cuerpo 7-8 dígitos, gui
 | `docs/f6-readme-adr` | README actualizado y ADR breves (capas, hashing, migraciones, ramas) | Documentación coherente con el código |
 | Promoción | `dev→test` (H7: `docker compose up` y humo de todos los endpoints) → `test→main` + tag `v1.0.0` (H8) | Versión publicada |
 
+### F7 — Identidad según los requerimientos del 2026-11-18 (crítica: esquema y autorización)
+Origen: `docs/REQUERIMIENTOS_2026-11-18_BRECHAS.md`. Decisiones del usuario (2026-11-18):
+- Alcance **solo identidad**. Las visitas, el aforo de 30 y el QR en dos pasos van en F8.
+- **Una rama** por persona; la rama y la categoría se copian en cada reserva para que los reportes no cambien.
+- **Contraseña temporal**: la crea el administrador y debe cambiarse en el primer acceso. Las invitaciones por correo quedan para más adelante.
+
+Fuera de alcance, porque el documento prohíbe inventarlos: el mecanismo de prioridad, los planes, las cuotas semanales y las sanciones.
+
+| Rama | Tarea | Criterio |
+|---|---|---|
+| `feat/f7-identity` | Roles `Admin`/`Recepcionista`/`Usuario`. Categorías Deportista/Estudiante/Funcionario/Externo separadas del rol. Catálogo de ramas. Nombre y apellido por separado. Edición y filtros de usuarios. Auditoría básica. Migración. | El recepcionista recibe 403 en usuarios, reservas globales y registro, pero puede registrar entradas y salidas (§17.3). El deportista sin rama se rechaza. |
+| `feat/f7-temp-password` | Contraseña temporal con cambio obligatorio. Reset administrativo. Límite de 1 reserva diaria para estudiantes, protegido ante concurrencia. Copia de la categoría y la rama en la reserva. | Casos §17.5 y §17.6. Con la contraseña temporal pendiente, todo responde 403 salvo `me`, `change-password` y `logout`. |
+| `feat/f7-frontend` | Portal del recepcionista, formularios con los campos nuevos, gestión de ramas y cambio de contraseña. | E2E en verde y prueba en el stack real. |
+
 ## 5. Decisiones aprobadas en H0 (2026-11-17)
 
 1. **Historial:** se conserva el historial del origen (`403f81a`). `upstream` = `xAchaoooo/Back_Gym` (push deshabilitado).
