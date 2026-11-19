@@ -115,11 +115,6 @@ public sealed class AttendanceService(AppDbContext context, IQrTokenService toke
             return ServiceError.Validation(errorMessage);
         }
 
-        if (!user!.Enabled)
-        {
-            return ServiceError.Validation("El usuario no está habilitado.");
-        }
-
         var todayKey = _clock.Today;
 
         var attendance = await _context.Attendances.FirstOrDefaultAsync(candidate =>
