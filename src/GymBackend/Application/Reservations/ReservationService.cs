@@ -50,6 +50,8 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
     {
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         await context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"Users\" WHERE \"Id\" = {userId} FOR UPDATE", ct);
+        await context.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT 1 FROM \"ScheduleSlots\" WHERE \"Id\" = {request.ScheduleSlotId} FOR UPDATE", ct);
 
         var schedule = await context.ScheduleSlots.FirstOrDefaultAsync(slot => slot.Id == request.ScheduleSlotId && slot.Enabled, ct);
@@ -89,8 +91,15 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
             return ServiceError.Validation("Ya tienes una reserva para este bloque.");
         }
 
+        var dailyCount = await context.Reservations.CountAsync(r => r.UserId == userId && r.Date == request.Date
+            && (r.Status == ReservationStatus.Reserved || r.Status == ReservationStatus.Attended), ct);
+        if (!ReservationRules.CanBookOnDate(user.Category, dailyCount))
+            return ServiceError.Conflict("Los estudiantes pueden reservar como m\u00e1ximo una sesi\u00f3n por d\u00eda.");
+
         var reservation = new Reservation
         {
+            CategoryAtBooking = user.Category,
+            SportBranchIdAtBooking = user.SportBranchId,
             UserId = user.Id,
             User = user,
             ScheduleSlotId = schedule.Id,

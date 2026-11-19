@@ -61,6 +61,21 @@ public sealed class LoginRateLimitTests(GymApiFactory factory)
                 ["RateLimiting:Login:WindowSeconds"] = "60",
             })));
 
+    [Fact]
+    public async Task ChangePassword_RejectsRequestsAfterPermitLimit()
+    {
+        var user = await factory.CreateClientUserAsync();
+        using var existing = user.Client;
+        using var host = CreateHost();
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = existing.DefaultRequestHeaders.Authorization;
+        for (var attempt = 0; attempt < 3; attempt++)
+            await Expect(await client.PostAsJsonAsync("/api/v1/auth/change-password",
+                new { currentPassword = "wrong", newPassword = "NewPassword123!" }, JsonOptions, Ct), HttpStatusCode.BadRequest);
+        await AssertRateLimited(await client.PostAsJsonAsync("/api/v1/auth/change-password",
+            new { currentPassword = "wrong", newPassword = "NewPassword123!" }, JsonOptions, Ct));
+    }
+
     private static async Task AssertRateLimited(HttpResponseMessage response)
     {
         using (response)

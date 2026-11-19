@@ -16,7 +16,7 @@ if (!builder.Environment.IsDevelopment())
         options.IncludeSubDomains = true;
     });
 }
-builder.Services.AddControllers();
+builder.Services.AddControllers(options => options.Filters.Add<PendingPasswordChangeFilter>());
 builder.Services.AddGymErrors();
 builder.Services.AddGymObservability();
 builder.Services.AddGymOptions();

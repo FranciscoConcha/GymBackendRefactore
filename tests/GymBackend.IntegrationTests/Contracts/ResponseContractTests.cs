@@ -9,8 +9,8 @@ namespace GymBackend.IntegrationTests.Contracts;
 
 public sealed class ResponseContractTests(GymApiFactory factory)
 {
-    private const string UserShape = "id:n rut:s firstName:s lastName:s fullName:s email:s username:s category:s? sportBranch:o? role:s enabled:b createdAt:s updatedAt:s";
-    private const string ReservationShape = "id:n userId:n userName:s scheduleSlotId:n date:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s";
+    private const string UserShape = "id:n rut:s firstName:s lastName:s fullName:s email:s username:s category:s? sportBranch:o? role:s mustChangePassword:b enabled:b createdAt:s updatedAt:s";
+    private const string ReservationShape = "id:n userId:n userName:s scheduleSlotId:n date:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s category:s? sportBranchId:n?";
     private const string AttendanceShape = "id:n userId:n rut:s userName:s date:s entryTime:s? entryAdminRut:s? exitTime:s? exitAdminRut:s? reservationId:n? checkedIn:b";
 
     [Fact]

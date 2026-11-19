@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using GymBackend.IntegrationTests.Infrastructure;
 using GymBackend.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
 
 namespace GymBackend.IntegrationTests.Security;
@@ -19,9 +20,30 @@ public sealed class SessionCookieTests(GymApiFactory factory)
         var user = await factory.CreateClientUserAsync();
         using var existing = user.Client;
         using var client = factory.CreateClient();
+        // Logout revokes all sessions for the account: isolate this admin from parallel tests.
+        var adminRut = TestData.NextRut();
+        var adminUsername = $"cookie-admin-{Guid.NewGuid():N}";
+        if (admin)
+            await factory.WithDbAsync(async db =>
+            {
+                var bootstrap = await db.Users.AsNoTracking().SingleAsync(u => u.Rut == factory.AdminRut, Ct);
+                db.Users.Add(new GymBackend.Models.User
+                {
+                    Rut = adminRut,
+                    Username = adminUsername,
+                    Email = $"{adminRut}@example.test",
+                    FirstName = "Cookie",
+                    LastName = "Admin",
+                    Role = "Admin",
+                    PasswordHash = bootstrap.PasswordHash,
+                    CreatedAt = bootstrap.CreatedAt,
+                    UpdatedAt = bootstrap.UpdatedAt,
+                });
+                await db.SaveChangesAsync(Ct);
+            });
         var before = DateTimeOffset.UtcNow;
         using var response = admin
-            ? await client.PostAsJsonAsync("/api/v1/auth/admin-login", new { username = factory.AdminUsername, password = factory.AdminPassword }, JsonOptions, Ct)
+            ? await client.PostAsJsonAsync("/api/v1/auth/admin-login", new { username = adminUsername, password = factory.AdminPassword }, JsonOptions, Ct)
             : await client.PostAsJsonAsync("/api/v1/auth/login", new { rut = user.Rut, password = user.Password }, JsonOptions, Ct);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var cookie = Assert.Single(response.Headers.GetValues("Set-Cookie"));
@@ -44,7 +66,7 @@ public sealed class SessionCookieTests(GymApiFactory factory)
         Assert.True(response.Headers.CacheControl?.NoStore);
         using var me = await client.GetAsync("/api/v1/auth/me", Ct);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        Assert.Equal(admin ? factory.AdminRut : user.Rut, (await Read(me)).GetProperty("rut").GetString());
+        Assert.Equal(admin ? adminRut : user.Rut, (await Read(me)).GetProperty("rut").GetString());
         using var logout = await client.PostAsync("/api/v1/auth/logout", null, Ct);
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         Assert.Equal("Sesión cerrada.", (await Read(logout)).GetProperty("message").GetString());

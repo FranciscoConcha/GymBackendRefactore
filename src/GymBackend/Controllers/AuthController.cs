@@ -60,12 +60,31 @@ public class AuthController(IAuthService authService, IUserService userService) 
     [AllowAnonymous]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status403Forbidden)]
-    public IActionResult Logout()
+    [AllowPendingPasswordChange]
+    public async Task<IActionResult> Logout(CancellationToken ct = default)
     {
+        if (User.Identity?.IsAuthenticated == true && int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id))
+            await authService.LogoutAsync(id, ct);
         SessionCookie.Delete(Response);
         return Ok(new MessageResponse("Sesión cerrada."));
     }
 
+    [HttpPost("change-password")]
+    [Authorize]
+    [AllowPendingPasswordChange]
+    [EnableRateLimiting(RateLimitingExtensions.LoginPolicy)]
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct = default)
+    {
+        if (!int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)) return Unauthorized();
+        return CompleteLogin(await authService.ChangePasswordAsync(id, request, ct));
+    }
+
+    [HttpPost("users/{id}/password-reset")]
+    [Authorize(Roles = Roles.Admin)]
+    public async Task<IActionResult> ResetPassword(int id, PasswordResetRequest request, CancellationToken ct = default) =>
+        this.ToActionResult(await authService.ResetPasswordAsync(id, request, ct));
+
+    [AllowPendingPasswordChange]
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType<UserResponse>(StatusCodes.Status200OK)]

@@ -146,6 +146,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         var registered = await ReadAuthAsync(registration);
         var userId = registered.User?.Id
             ?? throw new InvalidOperationException("El registro no devolviÃ³ el usuario.");
+        await MakeFixtureUserReadyAsync(registered.User!.Id);
         var client = CreateClient();
         try
         {
@@ -179,6 +180,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }, JsonOptions, TestContext.Current.CancellationToken);
         var registered = await ReadAuthAsync(registration);
         Assert.Equal(username, registered.User!.Username);
+        await MakeFixtureUserReadyAsync(registered.User!.Id);
         var client = CreateClient();
         try
         {
@@ -191,6 +193,15 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         catch { client.Dispose(); throw; }
     }
 
+    // Ordinary fixture users bypass only the initial password step in the database.
+    // Security tests register directly, preserving coverage of the pending-password flow.
+    private Task MakeFixtureUserReadyAsync(int id) => WithDbAsync(async db =>
+    {
+        var user = await db.Users.FindAsync([id], TestContext.Current.CancellationToken);
+        user!.MustChangePassword = false;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    });
+
     public HttpClient CreateClientWithToken(string token)
     {
         var client = CreateClient();
@@ -202,7 +213,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         => CreateJwt(userId.ToString(CultureInfo.InvariantCulture), role, rut, name, expires);
 
     public string CreateJwt(string? userId, string role, string rut, string name = "Test", DateTime? expires = null,
-        string? issuer = "gym-tests", string? audience = "gym-tests-clients", string? signingKey = null)
+        string? issuer = "gym-tests", string? audience = "gym-tests-clients", string? signingKey = null, int? sessionVersion = 0, bool pendingClaim = false)
     {
         var claims = new List<Claim>
         {
@@ -211,6 +222,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             new Claim("rut", rut),
             new Claim("email", $"user-{rut}@example.test"),
         };
+        if (sessionVersion is { } version) claims.Add(new Claim("sv", version.ToString(CultureInfo.InvariantCulture)));
+        if (pendingClaim) claims.Add(new Claim("gym:pending-password-change", "true"));
         if (userId is not null)
             claims.Add(new Claim(ClaimTypes.NameIdentifier, userId));
         var credentials = new SigningCredentials(

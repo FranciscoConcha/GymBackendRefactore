@@ -93,20 +93,33 @@ public static class ServiceCollectionExtensions
                 OnTokenValidated = async context =>
                 {
                     if (!int.TryParse(context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
+                    {
+                        context.Fail("La sesión no contiene un usuario válido.");
                         return;
+                    }
 
                     var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
                     var user = await db.Users.AsNoTracking()
                         .Where(user => user.Id == userId)
-                        .Select(user => new { user.Enabled, user.Role })
+                        .Select(user => new { user.Enabled, user.Role, user.SessionVersion, user.MustChangePassword })
                         .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
-                    if (user?.Enabled == false)
+                    if (user is null || !int.TryParse(context.Principal?.FindFirst("sv")?.Value, out var version)
+                        || version != user.SessionVersion)
+                    {
+                        context.Fail("La sesi\u00f3n no es v\u00e1lida.");
+                        return;
+                    }
+                    if (user.Enabled == false)
                         context.Fail("El usuario no está habilitado.");
                     if (user is not null && context.Principal?.Identity is ClaimsIdentity identity)
                     {
                         foreach (var claim in identity.FindAll(identity.RoleClaimType).ToArray())
                             identity.RemoveClaim(claim);
                         identity.AddClaim(new Claim(identity.RoleClaimType, user.Role));
+                        foreach (var claim in identity.FindAll(PendingPasswordChangeFilter.ClaimType).ToArray())
+                            identity.RemoveClaim(claim);
+                        if (user.MustChangePassword)
+                            identity.AddClaim(new Claim(PendingPasswordChangeFilter.ClaimType, "true"));
                     }
                 },
             };

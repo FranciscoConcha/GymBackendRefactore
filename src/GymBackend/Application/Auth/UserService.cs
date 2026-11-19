@@ -41,6 +41,7 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
             Email = email,
             Username = request.Role == Roles.Usuario ? string.Empty : username,
             PasswordHash = passwordHasher.Hash(request.Password),
+            MustChangePassword = true,
             Role = request.Role,
             Category = request.Category,
             SportBranch = branch,
@@ -61,15 +62,20 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
         var lastName = request.LastName?.Trim() ?? user.LastName;
         var email = request.Email?.Trim().ToLowerInvariant() ?? user.Email;
         var role = request.Role ?? user.Role;
+        var username = role == Roles.Usuario ? string.Empty : request.Username?.Trim().ToLowerInvariant() ?? user.Username;
         var category = request.HasCategory ? request.Category : user.Category;
         var branchId = request.HasSportBranchId ? request.SportBranchId : user.SportBranchId;
         var branch = branchId is { } value ? await context.SportBranches.FindAsync([value], ct) : null;
         var invalid = ValidateNamesAndEmail(firstName, lastName, email)
-            ?? IdentityRules.Validate(role, category, branchId, branch?.Enabled == true, user.Username);
+            ?? IdentityRules.Validate(role, category, branchId, branch?.Enabled == true, username);
         if (invalid is not null) return ServiceError.Validation(invalid);
         if (await context.Users.AnyAsync(u => u.Id != id && u.Email.ToLower() == email, ct))
             return ServiceError.Conflict("El correo ya est\u00e1 registrado en el sistema.");
+        if (username.Length > 0 && await context.Users.AnyAsync(u => u.Id != id && u.Username.ToLower() == username, ct))
+            return ServiceError.Conflict("El usuario ya est\u00e1 registrado en el sistema.");
         var fields = new List<string>();
+        if (user.Username != username) fields.Add("username");
+        user.Username = username;
         if (user.FirstName != firstName) fields.Add("firstName");
         if (user.LastName != lastName) fields.Add("lastName");
         if (user.Email != email) fields.Add("email");

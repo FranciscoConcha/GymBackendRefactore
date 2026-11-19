@@ -14,7 +14,8 @@ public sealed class QrTests(GymApiFactory factory)
         using var denied = await anonymous.GetAsync("/api/v1/qr/my-code", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         using var ghost = factory.CreateClientWithToken(factory.CreateJwt(999999, "Usuario", TestData.NextRut()));
-        await Expect(await ghost.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.Unauthorized, "La sesión no corresponde a un usuario válido.");
+        using var ghostResponse = await ghost.GetAsync("/api/v1/qr/my-code", Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, ghostResponse.StatusCode);
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         var before = GymTime.Today();
