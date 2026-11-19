@@ -22,7 +22,7 @@ public sealed class QrService(AppDbContext context, IQrTokenService tokens, IGym
         var today = _clock.Today;
         var token = tokens.Generate(user.Rut, today);
 
-        return ServiceResult<QrCodeResponse>.Success(new QrCodeResponse(user.Rut, user.Name, today.ToString("yyyy-MM-dd"), token,
+        return ServiceResult<QrCodeResponse>.Success(new QrCodeResponse(user.Rut, user.FullName, today.ToString("yyyy-MM-dd"), token,
             _clock.StartOfDay(today), _clock.StartOfDay(today.AddDays(1)).AddMinutes(-1)));
     }
 }

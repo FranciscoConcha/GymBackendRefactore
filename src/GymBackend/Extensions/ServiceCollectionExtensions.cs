@@ -96,12 +96,18 @@ public static class ServiceCollectionExtensions
                         return;
 
                     var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                    var enabled = await db.Users.AsNoTracking()
+                    var user = await db.Users.AsNoTracking()
                         .Where(user => user.Id == userId)
-                        .Select(user => (bool?)user.Enabled)
+                        .Select(user => new { user.Enabled, user.Role })
                         .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
-                    if (enabled == false)
+                    if (user?.Enabled == false)
                         context.Fail("El usuario no está habilitado.");
+                    if (user is not null && context.Principal?.Identity is ClaimsIdentity identity)
+                    {
+                        foreach (var claim in identity.FindAll(identity.RoleClaimType).ToArray())
+                            identity.RemoveClaim(claim);
+                        identity.AddClaim(new Claim(identity.RoleClaimType, user.Role));
+                    }
                 },
             };
         });

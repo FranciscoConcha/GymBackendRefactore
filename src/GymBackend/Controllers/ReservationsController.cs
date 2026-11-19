@@ -39,6 +39,7 @@ public class ReservationsController : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Roles = Roles.Usuario + "," + Roles.Admin)]
     [ProducesResponseType<ReservationMessageResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<MessageResponse>(StatusCodes.Status401Unauthorized)]

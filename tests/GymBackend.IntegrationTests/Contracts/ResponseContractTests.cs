@@ -9,7 +9,7 @@ namespace GymBackend.IntegrationTests.Contracts;
 
 public sealed class ResponseContractTests(GymApiFactory factory)
 {
-    private const string UserShape = "id:n rut:s name:s email:s username:s userType:s role:s enabled:b";
+    private const string UserShape = "id:n rut:s firstName:s lastName:s fullName:s email:s username:s category:s? sportBranch:o? role:s enabled:b createdAt:s updatedAt:s";
     private const string ReservationShape = "id:n userId:n userName:s scheduleSlotId:n date:s day:s startTime:s endTime:s zone:s capacity:n status:s createdAt:s";
     private const string AttendanceShape = "id:n userId:n rut:s userName:s date:s entryTime:s? entryAdminRut:s? exitTime:s? exitAdminRut:s? reservationId:n? checkedIn:b";
 
@@ -24,7 +24,7 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         var rut = TestData.NextRut();
         var password = Guid.NewGuid().ToString("N");
         var registered = await Expect(await admin.PostAsJsonAsync("/api/v1/auth/register",
-            new { rut, name = "Contrato", email = $"{rut}@example.test", password, userType = "Estudiante" }, JsonOptions, Ct), HttpStatusCode.OK);
+            new { rut, firstName = "Contrato", lastName = "Test", email = $"{rut}@example.test", password, role = "Usuario", category = "Estudiante" }, JsonOptions, Ct), HttpStatusCode.OK);
         UserMessage(registered);
         var id = registered.GetProperty("user").GetProperty("id").GetInt32();
         Auth(await Expect(await anonymous.PostAsJsonAsync("/api/v1/auth/login", new { rut, password }, JsonOptions, Ct), HttpStatusCode.OK));

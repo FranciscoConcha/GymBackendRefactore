@@ -2,11 +2,12 @@ using GymBackend.Application.Common;
 using GymBackend.Data;
 using GymBackend.Domain;
 using GymBackend.DTOs;
+using GymBackend.Time;
 using Microsoft.EntityFrameworkCore;
 
 namespace GymBackend.Application.Auth;
 
-public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwordHasher, ITokenService tokenService) : IAuthService
+public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwordHasher, ITokenService tokenService, IGymClock clock) : IAuthService
 {
     public async Task<ServiceResult<AuthSession>> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
@@ -20,7 +21,7 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             return ServiceError.Validation("La contraseña es obligatoria.");
         }
 
-        var candidates = await context.Users
+        var candidates = await context.Users.Include(candidate => candidate.SportBranch)
             .Where(candidate => candidate.Rut == rut)
             .OrderBy(candidate => candidate.Id)
             .ToListAsync(ct);
@@ -29,7 +30,7 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             .FirstOrDefault(candidate => candidate.Check != PasswordCheck.Failed);
         var user = match.User;
 
-        if (user is null || !user.Enabled || user.Role == Roles.Admin)
+        if (user is null || !user.Enabled || user.Role != Roles.Usuario)
         {
             return ServiceError.Unauthorized("Credenciales de usuario incorrectas.");
         }
@@ -48,8 +49,8 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
             return ServiceError.Validation("El usuario y la contraseña son obligatorios.");
         }
 
-        var candidates = await context.Users
-            .Where(candidate => candidate.Username.ToLower() == username && candidate.Role == Roles.Admin)
+        var candidates = await context.Users.Include(candidate => candidate.SportBranch)
+            .Where(candidate => candidate.Username.ToLower() == username && (candidate.Role == Roles.Admin || candidate.Role == Roles.Recepcionista))
             .OrderBy(candidate => candidate.Id)
             .ToListAsync(ct);
         if (candidates.Count == 0) passwordHasher.VerifyDummy(request.Password);
@@ -71,6 +72,7 @@ public sealed class AuthService(AppDbContext context, IUserPasswordHasher passwo
     {
         if (check != PasswordCheck.SuccessRehashNeeded) return;
         user.PasswordHash = passwordHasher.Hash(password);
+        user.UpdatedAt = clock.UtcNow;
         await context.SaveChangesAsync(ct);
     }
 }

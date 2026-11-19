@@ -8,10 +8,42 @@ namespace GymBackend.IntegrationTests.Data;
 
 public sealed class ConstraintTests(GymApiFactory factory)
 {
+    [Fact]
+    public async Task Branch_NameIsUniqueIgnoringCase_AndReferencedBranchCannotBeDeleted()
+    {
+        var name = $"Constraint {Guid.NewGuid():N}";
+        var branch = new SportBranch { Name = name };
+        await factory.WithDbAsync(async db =>
+        {
+            db.SportBranches.Add(branch);
+            await db.SaveChangesAsync(Ct);
+        });
+        await Assert.ThrowsAsync<DbUpdateException>(() => factory.WithDbAsync(async db =>
+        {
+            db.SportBranches.Add(new SportBranch { Name = name.ToUpperInvariant() });
+            await db.SaveChangesAsync(Ct);
+        }));
+        await factory.WithDbAsync(async db =>
+        {
+            var user = NewUser();
+            user.Category = UserCategories.Deportista;
+            user.SportBranchId = branch.Id;
+            db.Users.Add(user);
+            await db.SaveChangesAsync(Ct);
+        });
+        await Assert.ThrowsAsync<DbUpdateException>(() => factory.WithDbAsync(async db =>
+        {
+            db.SportBranches.Remove(await db.SportBranches.SingleAsync(b => b.Id == branch.Id, Ct));
+            await db.SaveChangesAsync(Ct);
+        }));
+    }
+
     private static User NewUser() => new()
     {
         Rut = TestData.NextRut(),
-        Name = "Constraint test",
+        FirstName = "Constraint",
+        LastName = "Test",
+        Category = "Estudiante",
         Email = $"constraint-{Guid.NewGuid():N}@example.test",
         Username = "",
         PasswordHash = "test-hash",

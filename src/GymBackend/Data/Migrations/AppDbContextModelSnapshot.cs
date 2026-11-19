@@ -66,6 +66,44 @@ namespace GymBackend.Data.Migrations
                     b.ToTable("Attendances");
                 });
 
+            modelBuilder.Entity("GymBackend.Models.AuditEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int?>("ActorUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AuditEvents");
+                });
+
             modelBuilder.Entity("GymBackend.Models.Reservation", b =>
                 {
                     b.Property<int>("Id")
@@ -143,6 +181,38 @@ namespace GymBackend.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("GymBackend.Models.SportBranch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("NormalizedName")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasComputedColumnSql("lower(\"Name\")", true);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("SportBranches");
+                });
+
             modelBuilder.Entity("GymBackend.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -150,6 +220,13 @@ namespace GymBackend.Data.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -159,10 +236,15 @@ namespace GymBackend.Data.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("FirstName")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -170,16 +252,19 @@ namespace GymBackend.Data.Migrations
 
                     b.Property<string>("Role")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Rut")
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
-                    b.Property<string>("UserType")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<int?>("SportBranchId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Username")
                         .IsRequired()
@@ -193,6 +278,8 @@ namespace GymBackend.Data.Migrations
 
                     b.HasIndex("Rut")
                         .IsUnique();
+
+                    b.HasIndex("SportBranchId");
 
                     b.HasIndex("Username")
                         .IsUnique()
@@ -236,6 +323,16 @@ namespace GymBackend.Data.Migrations
                     b.Navigation("ScheduleSlot");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("GymBackend.Models.User", b =>
+                {
+                    b.HasOne("GymBackend.Models.SportBranch", "SportBranch")
+                        .WithMany()
+                        .HasForeignKey("SportBranchId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("SportBranch");
                 });
 #pragma warning restore 612, 618
         }

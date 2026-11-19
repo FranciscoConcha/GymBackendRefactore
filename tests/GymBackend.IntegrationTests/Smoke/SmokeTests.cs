@@ -73,7 +73,7 @@ public sealed class SmokeTests(GymApiFactory factory)
         Assert.Equal(new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
             DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday }, seededDays);
         Assert.Equal("Admin", admin.Role);
-        Assert.Equal("Administrador", admin.UserType);
+        Assert.Null(admin.Category);
         Assert.Equal(factory.AdminUsername.ToLowerInvariant(), admin.Username);
     }
 }

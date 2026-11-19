@@ -81,10 +81,15 @@ public class AuthController(IAuthService authService, IUserService userService) 
     [ProducesResponseType<UserResponse[]>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetUsers(CancellationToken ct = default)
+    public async Task<IActionResult> GetUsers([FromQuery] string? search, [FromQuery] string? role, [FromQuery] string? category, [FromQuery] int? branchId, [FromQuery] bool? enabled, CancellationToken ct = default)
     {
-        return this.ToActionResult(await userService.GetUsersAsync(ct));
+        return this.ToActionResult(await userService.GetUsersAsync(search, role, category, branchId, enabled, ct));
     }
+
+    [HttpPatch("users/{id}")]
+    [Authorize(Roles = Roles.Admin)]
+    public async Task<IActionResult> UpdateUser(int id, UpdateUserRequest request, CancellationToken ct = default) =>
+        this.ToActionResult(await userService.UpdateAsync(id, request, ct));
 
     [HttpPatch("users/{id}/status")]
     [Authorize(Roles = Roles.Admin)]

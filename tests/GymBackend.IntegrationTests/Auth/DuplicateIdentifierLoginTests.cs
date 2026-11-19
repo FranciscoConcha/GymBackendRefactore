@@ -70,15 +70,16 @@ public sealed class DuplicateIdentifierLoginTests(GymApiFactory factory)
         Assert.Equal(ids[1], result.GetProperty("user").GetProperty("id").GetInt32());
     }
 
-    private static User NewUser(string rut, string email, string password, string username = "", string role = Roles.Client) => new()
+    private static User NewUser(string rut, string email, string password, string username = "", string role = Roles.Usuario) => new()
     {
         Rut = rut,
-        Name = $"Duplicate {rut}",
+        FirstName = "Duplicate",
+        LastName = rut,
         Email = email,
         Username = username,
         PasswordHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password))),
         Role = role,
-        UserType = role == Roles.Admin ? UserTypes.Administrator : UserTypes.Student,
+        Category = role == Roles.Admin ? null : UserCategories.Estudiante,
         Enabled = true,
     };
 }

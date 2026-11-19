@@ -11,7 +11,7 @@ namespace GymBackend.UnitTests.Auth;
 public sealed class JwtTokenServiceTests
 {
     [Theory]
-    [InlineData(Roles.Client)]
+    [InlineData(Roles.Usuario)]
     [InlineData(Roles.Admin)]
     public void CreateToken_PreservesClaimsAlgorithmAndEightHourExpiry(string role)
     {
@@ -24,7 +24,8 @@ public sealed class JwtTokenServiceTests
         var user = new User
         {
             Id = 42,
-            Name = "Test User",
+            FirstName = "Test",
+            LastName = "User",
             Role = role,
             Rut = "123456789",
             Email = "user@example.test",
@@ -36,7 +37,7 @@ public sealed class JwtTokenServiceTests
 
         Assert.Equal(token.ValidTo, encoded.ExpiresAt.UtcDateTime);
         Assert.Equal("42", token.Claims.Single(claim => claim.Type == ClaimTypes.NameIdentifier).Value);
-        Assert.Equal(user.Name, token.Claims.Single(claim => claim.Type == ClaimTypes.Name).Value);
+        Assert.Equal(user.FullName, token.Claims.Single(claim => claim.Type == ClaimTypes.Name).Value);
         Assert.Equal(role, token.Claims.Single(claim => claim.Type == ClaimTypes.Role).Value);
         Assert.Equal(user.Rut, token.Claims.Single(claim => claim.Type == GymClaimTypes.Rut).Value);
         Assert.Equal(user.Email, token.Claims.Single(claim => claim.Type == GymClaimTypes.Email).Value);

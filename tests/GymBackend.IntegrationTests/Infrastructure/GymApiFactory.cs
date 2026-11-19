@@ -59,7 +59,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             SetEnvironment("Jwt__Issuer", "gym-tests");
             SetEnvironment("Jwt__Audience", "gym-tests-clients");
             SetEnvironment("Qr__SigningKey", QrKey);
-            // Umbral alto: las pruebas inician sesión muchas veces; las de límite usan un host derivado.
+            // Umbral alto: las pruebas inician sesiÃ³n muchas veces; las de lÃ­mite usan un host derivado.
             SetEnvironment("RateLimiting__Login__PermitLimit", "100000");
             SetEnvironment("Database__Initialize", "true");
             SetEnvironment("Bootstrap__AdminRut", AdminRut);
@@ -75,8 +75,8 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         }
     }
 
-    // CreateClient reasigna BaseAddress desde ClientOptions después de ConfigureClient: se fija aquí para que
-    // la cookie Secure de sesión viaje por https (los hosts derivados copian ClientOptions).
+    // CreateClient reasigna BaseAddress desde ClientOptions despuÃ©s de ConfigureClient: se fija aquÃ­ para que
+    // la cookie Secure de sesiÃ³n viaje por https (los hosts derivados copian ClientOptions).
     public GymApiFactory() => ClientOptions.BaseAddress = new Uri("https://localhost/");
 
     protected override void ConfigureClient(HttpClient client)
@@ -128,7 +128,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     }
 
     public async Task<(HttpClient Client, int UserId, string Rut, string Password)> CreateClientUserAsync(
-        string userType = "Estudiante")
+        string category = "Estudiante")
     {
         var rut = TestData.NextRut();
         var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
@@ -136,14 +136,16 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         using var registration = await admin.PostAsJsonAsync("/api/v1/auth/register", new
         {
             rut,
-            name = $"Test {rut}",
+            firstName = "Test",
+            lastName = rut,
             email = $"user-{rut}@example.test",
             password,
-            userType,
+            role = "Usuario",
+            category,
         }, JsonOptions, TestContext.Current.CancellationToken);
         var registered = await ReadAuthAsync(registration);
         var userId = registered.User?.Id
-            ?? throw new InvalidOperationException("El registro no devolvió el usuario.");
+            ?? throw new InvalidOperationException("El registro no devolviÃ³ el usuario.");
         var client = CreateClient();
         try
         {
@@ -157,6 +159,36 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             client.Dispose();
             throw;
         }
+    }
+
+    public async Task<(HttpClient Client, int UserId, string Rut, string Username, string Password)> CreateReceptionistClientAsync()
+    {
+        var rut = TestData.NextRut();
+        var username = $"reception-{Guid.NewGuid():N}";
+        var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        using var admin = await CreateAdminClientAsync();
+        using var registration = await admin.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            rut,
+            firstName = "Reception",
+            lastName = "Test",
+            email = $"{rut}@example.test",
+            password,
+            username = $" {username.ToUpperInvariant()} ",
+            role = Roles.Recepcionista,
+        }, JsonOptions, TestContext.Current.CancellationToken);
+        var registered = await ReadAuthAsync(registration);
+        Assert.Equal(username, registered.User!.Username);
+        var client = CreateClient();
+        try
+        {
+            using var login = await client.PostAsJsonAsync("/api/v1/auth/admin-login", new { username, password }, JsonOptions, TestContext.Current.CancellationToken);
+            var authenticated = await ReadAuthAsync(login);
+            Assert.Equal(Roles.Recepcionista, authenticated.User!.Role);
+            SetToken(client, ReadSessionToken(login));
+            return (client, registered.User!.Id, rut, username, password);
+        }
+        catch { client.Dispose(); throw; }
     }
 
     public HttpClient CreateClientWithToken(string token)
@@ -243,7 +275,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     {
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions, TestContext.Current.CancellationToken)
-            ?? throw new InvalidOperationException("La API devolvió una respuesta de autenticación vacía.");
+            ?? throw new InvalidOperationException("La API devolviÃ³ una respuesta de autenticaciÃ³n vacÃ­a.");
     }
 
     private static string ReadSessionToken(HttpResponseMessage response) =>
@@ -254,7 +286,7 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
     private static void SetToken(HttpClient client, string? token)
     {
         if (string.IsNullOrWhiteSpace(token))
-            throw new InvalidOperationException("La API no devolvió un token de autenticación.");
+            throw new InvalidOperationException("La API no devolviÃ³ un token de autenticaciÃ³n.");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 }

@@ -19,7 +19,7 @@ public sealed class JwtTokenService(IOptions<JwtOptions> jwtOptions) : ITokenSer
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name, user.Name),
+            new Claim(ClaimTypes.Name, user.FullName),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim(GymClaimTypes.Rut, user.Rut),
             new Claim(GymClaimTypes.Email, user.Email),

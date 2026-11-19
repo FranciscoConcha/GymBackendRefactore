@@ -12,7 +12,7 @@ public sealed class InvalidUserClaimsTests(GymApiFactory factory)
     [InlineData(null)]
     public async Task MissingOrInvalidUserId_ReturnsUnauthorized(string? userId)
     {
-        using var client = factory.CreateClientWithToken(factory.CreateJwt(userId, "Cliente", TestData.NextRut()));
+        using var client = factory.CreateClientWithToken(factory.CreateJwt(userId, "Usuario", TestData.NextRut()));
         const string message = "La sesión no contiene un usuario válido.";
 
         await Expect(await client.GetAsync("/api/v1/qr/my-code", Ct), HttpStatusCode.Unauthorized, message);

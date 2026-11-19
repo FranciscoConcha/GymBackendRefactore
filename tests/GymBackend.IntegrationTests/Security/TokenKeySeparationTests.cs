@@ -22,7 +22,7 @@ public sealed class TokenKeySeparationTests(GymApiFactory factory)
         var user = await factory.CreateClientUserAsync();
         using var original = user.Client;
         using var client = factory.CreateClientWithToken(factory.CreateJwt(
-            user.UserId.ToString(), "Cliente", user.Rut, issuer: issuer, audience: audience));
+            user.UserId.ToString(), "Usuario", user.Rut, issuer: issuer, audience: audience));
         using var response = await client.GetAsync("/api/v1/qr/my-code", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -40,7 +40,7 @@ public sealed class TokenKeySeparationTests(GymApiFactory factory)
         using var denied = await qrBearer.GetAsync("/api/v1/qr/my-code", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         using var wrongKey = factory.CreateClientWithToken(factory.CreateJwt(
-            user.UserId.ToString(), "Cliente", user.Rut, signingKey: factory.QrKey));
+            user.UserId.ToString(), "Usuario", user.Rut, signingKey: factory.QrKey));
         using var wrongKeyResponse = await wrongKey.GetAsync("/api/v1/qr/my-code", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, wrongKeyResponse.StatusCode);
         using var admin = await factory.CreateAdminClientAsync();
