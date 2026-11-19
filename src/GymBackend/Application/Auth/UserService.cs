@@ -12,8 +12,8 @@ public sealed class UserService(AppDbContext context, IUserPasswordHasher passwo
 {
     public async Task<ServiceResult<UserMessageResponse>> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
     {
-        if (request.Role.Equals(Roles.Admin, StringComparison.OrdinalIgnoreCase))
-            return ServiceError.Validation("Los administradores deben crearse por un proceso controlado.");
+        if (request.Role.Equals(Roles.Admin, StringComparison.OrdinalIgnoreCase) && request.Password is not null)
+            return ServiceError.Validation("Los administradores se crean por invitaci\u00f3n, sin contrase\u00f1a temporal.");
         if (!RutFormat.TryNormalize(request.Rut, out var rut)) return ServiceError.Validation(RutFormat.ValidationMessage);
         var firstName = request.FirstName.Trim();
         var lastName = request.LastName.Trim();
