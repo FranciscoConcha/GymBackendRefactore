@@ -63,7 +63,8 @@ public sealed class ResponseContractTests(GymApiFactory factory)
         Array(await Expect(await client.GetAsync($"/api/v1/reservations/user/{user.UserId}", Ct), HttpStatusCode.OK), ReservationShape);
         Array(await Expect(await client.GetAsync("/api/v1/schedules", Ct), HttpStatusCode.OK), "id:n day:s startTime:s endTime:s zone:s capacity:n reservedCount:n date:s individualReservations:n groupSeats:n");
         var qr = await Expect(await client.GetAsync($"/api/v1/me/reservations/{id}/qr", Ct), HttpStatusCode.OK);
-        Shape(qr, "token:s validFrom:s validUntil:s user:o session:o");
+        Shape(qr, "token:s validFrom:s validUntil:s user:o session:o purpose:s");
+        Assert.Equal("Entrada", qr.GetProperty("purpose").GetString());
         var token = qr.GetProperty("token").GetString()!;
         var entry = await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.OK);
         AttendanceMessage(entry);

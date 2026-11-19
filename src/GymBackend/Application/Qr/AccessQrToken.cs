@@ -13,7 +13,8 @@ public sealed record AccessQrPayload(
     [property: JsonPropertyName("gid"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? GroupBookingId,
     [property: JsonPropertyName("uid")] int UserId,
     [property: JsonPropertyName("nbf")] long NotBefore,
-    [property: JsonPropertyName("exp")] long Expires)
+    [property: JsonPropertyName("exp")] long Expires,
+    [property: JsonPropertyName("vid"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? VisitId = null)
 {
     public bool IsCurrent(DateTimeOffset now) => NotBefore <= now.ToUnixTimeSeconds() && now.ToUnixTimeSeconds() < Expires;
 }
@@ -47,10 +48,11 @@ public static class AccessQrToken
             if (names.Distinct(StringComparer.Ordinal).Count() != names.Length) return false;
             var value = JsonSerializer.Deserialize<AccessQrPayload>(bytes);
             if (value is null || value.Version != 2 || value.UserId <= 0 || value.NotBefore <= 0 || value.Expires <= value.NotBefore) return false;
-            var expected = value.Kind == "R" ? new[] { "v", "k", "rid", "uid", "nbf", "exp" } : new[] { "v", "k", "gid", "uid", "nbf", "exp" };
+            var expected = new[] { "v", "k", value.Kind switch { "R" => "rid", "G" => "gid", "S" => "vid", _ => "" }, "uid", "nbf", "exp" };
             if (names.Length != expected.Length || expected.Except(names, StringComparer.Ordinal).Any()) return false;
-            if (!(value.Kind == "R" && value.ReservationId > 0 && value.GroupBookingId is null ||
-                value.Kind == "G" && value.GroupBookingId > 0 && value.ReservationId is null)) return false;
+            if (!(value.Kind == "R" && value.ReservationId > 0 && value.GroupBookingId is null && value.VisitId is null ||
+                value.Kind == "G" && value.GroupBookingId > 0 && value.ReservationId is null && value.VisitId is null ||
+                value.Kind == "S" && value.VisitId > 0 && value.ReservationId is null && value.GroupBookingId is null)) return false;
             payload = value;
             return true;
         }

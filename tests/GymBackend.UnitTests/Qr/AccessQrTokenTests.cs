@@ -13,9 +13,10 @@ public sealed class AccessQrTokenTests
     [Theory]
     [InlineData("R")]
     [InlineData("G")]
+    [InlineData("S")]
     public void RoundTrip(string kind)
     {
-        var original = Payload with { Kind = kind, ReservationId = kind == "R" ? 12 : null, GroupBookingId = kind == "G" ? 56 : null };
+        var original = Payload with { Kind = kind, ReservationId = kind == "R" ? 12 : null, GroupBookingId = kind == "G" ? 56 : null, VisitId = kind == "S" ? 78 : null };
         Assert.True(AccessQrToken.TryRead(AccessQrToken.Create(original, Key), Key, out var parsed));
         Assert.Equal(original, parsed);
     }
@@ -29,6 +30,30 @@ public sealed class AccessQrTokenTests
         Assert.False(AccessQrToken.TryRead(parts[0] + "." + WebEncoders.Base64UrlEncode(signature), Key, out _));
         var changed = AccessQrToken.Create(Payload with { UserId = 99 }, Key).Split('.')[0];
         Assert.False(AccessQrToken.TryRead(changed + "." + parts[1], Key, out _));
+    }
+
+    [Fact]
+    public void ExitPayloadRequiresExactlyItsKeysAndRejectsTampering()
+    {
+        var payload = Payload with { Kind = "S", ReservationId = null, VisitId = 78 };
+        var json = System.Text.Json.Nodes.JsonNode.Parse(System.Text.Json.JsonSerializer.Serialize(payload))!.AsObject();
+        Assert.Equal(new[] { "exp", "k", "nbf", "uid", "v", "vid" }, json.Select(p => p.Key).OrderBy(k => k));
+        foreach (var field in json.Select(p => p.Key).ToArray())
+        {
+            var missing = json.DeepClone().AsObject();
+            missing.Remove(field);
+            InvalidSignedJsonIsRejected(missing.ToJsonString());
+        }
+        foreach (var field in new[] { "rid", "gid", "unknown" })
+        {
+            var mixed = json.DeepClone().AsObject();
+            mixed[field] = 12;
+            InvalidSignedJsonIsRejected(mixed.ToJsonString());
+        }
+        var parts = AccessQrToken.Create(payload, Key).Split('.');
+        var changed = AccessQrToken.Create(payload with { VisitId = 99 }, Key).Split('.')[0];
+        Assert.False(AccessQrToken.TryRead(changed + "." + parts[1], Key, out _));
+        Assert.False(AccessQrToken.TryRead(AccessQrToken.Create(payload, "wrong-key"), Key, out _));
     }
 
     [Fact]

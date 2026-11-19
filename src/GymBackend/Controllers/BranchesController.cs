@@ -15,11 +15,6 @@ public sealed class BranchesController(BranchService service) : ControllerBase
     public async Task<IActionResult> Get(CancellationToken ct) =>
         this.ToActionResult(await service.GetAsync(User.IsInRole(Roles.Admin), ct));
 
-    [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
-    public async Task<IActionResult> Create(CreateBranchRequest request, CancellationToken ct) =>
-        this.ToActionResult(await service.CreateAsync(request, ct));
-
     [HttpPatch("{id}")]
     [Authorize(Roles = Roles.Admin)]
     public async Task<IActionResult> Update(int id, UpdateBranchRequest request, CancellationToken ct) =>

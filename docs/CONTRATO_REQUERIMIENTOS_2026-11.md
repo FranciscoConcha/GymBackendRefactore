@@ -69,6 +69,15 @@ Instantes en UTC (ISO 8601); fechas de sesión locales `YYYY-MM-DD` y horas `HH:
   - `usedSeats` = número de **personas distintas** que entraron con ese grupo. Si `usedSeats ≥ Seats`, se rechaza a una persona nueva.
   - Quien ya usó un cupo del grupo puede volver a entrar.
 
+### Catálogo precargado (decisión 2026-11-19)
+- Las 23 ramas deportivas se cargan mediante la migración `PreloadCatalogAndCapacity30`, también al aplicar migraciones en producción.
+  Las ramas anteriores fuera de la lista quedan deshabilitadas, conservando sus relaciones.
+- No existe `POST /branches`. `GET` se mantiene; `PATCH /branches/{id}` solo cambia `Enabled`, con auditoría.
+  Un nombre en el PATCH → 400 «Las ramas son precargadas; solo se pueden habilitar o deshabilitar.».
+- Se precargan 24 bloques: lunes a sábado 08:00–09:30, 09:30–11:00, 11:00–12:30 y 13:00–14:30, zona Sala de Pesas, habilitados y con 30 cupos.
+  La migración fija todos los bloques existentes en 30; no hay endpoint para cambiar capacidad.
+  `Down` devuelve la capacidad a 20 sin borrar ramas ni bloques. Development conserva solo el admin de arranque y la aplicación de migraciones.
+
 ## 4. Acceso, visitas y aforo (F8)
 - **`Gym:MaxOccupancy`** = 30 (validado, > 0). El aforo actual cuenta las **personas con una visita abierta**.
 - **`Visit`:** `{ Id, UserId, ReservationId?, GroupBookingId?, Date, EntryAt, ExitAt?, EntryOperatorId, ExitOperatorId?, DocumentType }`.
@@ -78,32 +87,43 @@ Instantes en UTC (ISO 8601); fechas de sesión locales `YYYY-MM-DD` y horas `HH:
 - **Sustituye** a la tabla `Attendance` y a `/attendance/*`, que se eliminan. No hay datos que conservar.
 - **Ventana de ingreso:** `[inicio − 15 min, fin)`. La salida siempre se permite si hay una visita abierta, aunque la cuenta esté deshabilitada o la sesión haya terminado.
 - **Endpoints (Admin y Recepcionista; rate limit `access` por operador):**
-  - **`POST /access/validate`** `{ token }` → 200 `{ user: { id, firstName, lastName, fullName, rut, category, sportBranch }, session: { kind: "Reserva"|"Grupo", reservationId?, groupBookingId?, date, startTime, endTime } | null, inside: bool, canEnter: bool, reason?: string, occupancy: { current, max } }`.
-    - **No registra la entrada.**
+  - **`POST /access/validate`** `{ token }` → 200 `{ user: { id, firstName, lastName, fullName, rut, category, sportBranch }, session: { kind: "Reserva"|"Grupo", reservationId?, groupBookingId?, date, startTime, endTime } | null, inside: bool, canEnter: bool, canExit: bool, action: "Entrada"|"Salida", reason?: string, occupancy: { current, max } }`.
+    - **No registra entrada ni salida.**
   - **`POST /access/entry`** `{ token, documentType }` → vuelve a validar todo. Admite `Idempotency-Key`.
     - Comprueba: cuenta habilitada, que la persona no esté dentro (409), elegibilidad (reserva o grupo en la ventana) y aforo.
     - Exclusión mutua global con `pg_advisory_xact_lock` para el último lugar: si el aforo está lleno → 409 «Se alcanzó el aforo máximo de la sala.».
     - Crea la `Visit`. En la primera entrada, la reserva pasa a `Asistió`.
     - Responde 200 `{ message, visit }`.
-  - **`POST /access/exit`** `{ userId }` → cierra la visita abierta de esa persona (sin visita abierta → 400). La persona se elige en `GET /access/current`, así que **no depende del QR**,
-    que vence al terminar el bloque. Responde 200 `{ message, visit }`.
+  - **`POST /access/exit`** acepta exactamente uno de `{ token }` (QR de salida) o `{ userId }` (respaldo manual).
+    Ambos o ninguno → 400. Un token de entrada → 400 «Escanee el QR de salida.».
+    Cierra exclusivamente la visita identificada, responde 200 `{ message, visit }` y registra `AccessEvent` aceptado con `Reason = "QR"` o `"Manual"`.
+    No depende de que la cuenta siga habilitada ni de la ventana del bloque. Sin visita abierta → 400.
+    Admite `Idempotency-Key` opcional como entrada; conserva el rate limit `access`.
   - **`GET /access/current`** → `{ occupancy: { current, max }, people: [{ userId, fullName, rut, category, entryAt, sessionEndTime }] }`.
 - **`VisitResponse`:** `{ id, userId, fullName, rut, reservationId, groupBookingId, date, entryAt, exitAt, stayMinutes, documentType, entryOperator, exitOperator }`.
 - **Historial:**
   - `GET /visits?from=&to=&userId=&branchId=&category=` (solo Admin).
   - `GET /me/visits` (las propias).
-- **QR de acceso por bloque** (decisión del usuario, 2026-11-19): el QR **pertenece a una reserva** (o al cupo de un grupo de la rama del deportista) y **solo es válido durante ese bloque**.
+- **QR de acceso por bloque** (decisión del usuario, 2026-11-19): el QR **pertenece a una reserva** (o al cupo de un grupo de la rama del deportista) y **para entrada solo es válido durante ese bloque**.
   Lo validan los roles `Admin` y `Recepcionista` (Usuario → 403). **Se elimina el QR diario** (`/qr/my-code` y su formato).
   - **Formato del token v2:** `base64url(payload).base64url(HMAC-SHA256(Qr:SigningKey, payload))`.
     - El payload es JSON `{ v: 2, k: "R"|"G", rid: reservationId | gid: groupBookingId, uid: userId, nbf: unix, exp: unix }`.
+    - Para salida: payload con exactamente `{ v: 2, k: "S", vid: visitId, uid: userId, nbf: unix, exp: unix }`.
+      `nbf` es el instante de entrada y `exp = nbf + 18 h`. Se rechazan claves desconocidas, duplicadas o mezcladas con `rid`/`gid`.
     - Ventana: `nbf = inicio − 15 min` y `exp = fin`, ambos en instantes UTC calculados desde la hora de Santiago.
     - Se verifica con una comparación en tiempo constante (`CryptographicOperations.FixedTimeEquals`).
   - **Emisión:**
     - `GET /me/reservations/{id}/qr` (solo el titular; reserva `Reservado`/`Asistió`; en otro caso 404).
     - `GET /me/group-bookings/{id}/qr` (deportista habilitado de la rama del grupo, grupo `Activa`).
-    - Ambos responden `{ token, validFrom, validUntil, user: { firstName, lastName, fullName, rut, category, sportBranch }, session: { kind, reservationId?, groupBookingId?, date, startTime, endTime } }`.
+    - Ambos responden `{ token, purpose: "Entrada"|"Salida", validFrom, validUntil, user: { firstName, lastName, fullName, rut, category, sportBranch }, session: { kind, reservationId?, groupBookingId?, date, startTime, endTime } }`.
+    - Si el usuario tiene una visita abierta, estos endpoints devuelven su QR `S` con `purpose: "Salida"` y la sesión de esa visita.
+      Tras cerrarla vuelven a emitir el QR de entrada; se permite reingresar dentro de la ventana.
+      En grupos cada integrante recibe un token distinto con su propio `uid`, tanto para entrada como para salida.
     - Se puede emitir antes de la ventana: el QR se muestra, pero solo **valida** dentro de ella.
-  - **Validación** (en `validate` y `entry`, siempre las dos):
+  - **Validación de salida** (`validate`, `action: "Salida"`): verifica firma, vigencia, `vid`, pertenencia a `uid` y visita abierta.
+    Devuelve identidad y `canExit: true` sin cerrar la visita; visita cerrada → `canExit: false`, «Este QR de salida ya fue utilizado.».
+    `/exit` vuelve a validar y rechaza reutilizaciones con 400. Un token solo puede cerrar su visita, nunca una posterior.
+  - **Validación de entrada** (en `validate` y `entry`, siempre las dos; `action: "Entrada"`):
     - firma correcta;
     - `nbf ≤ ahora < exp` según el reloj del servidor; fuera de ese rango → `canEnter = false` con «El código QR no está vigente para este bloque.»;
     - la reserva o el grupo siguen activos y pertenecen a `uid`; el usuario está habilitado;

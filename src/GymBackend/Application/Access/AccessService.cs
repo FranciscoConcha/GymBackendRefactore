@@ -25,6 +25,16 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
             await RecordAsync("Validar", operatorId, null, error, ct);
             return ServiceError.Validation(error);
         }
+        if (tokens.TryRead(token, out var exitPayload) && exitPayload.Kind == "S")
+        {
+            var visit = await db.Visits.SingleOrDefaultAsync(v => v.Id == exitPayload.VisitId && v.UserId == user.Id, ct);
+            var exitReason = ExitTokenRejection(exitPayload, visit);
+            var occupancy = await db.Visits.CountAsync(v => v.ExitAt == null, ct);
+            var isInside = await db.Visits.AnyAsync(v => v.UserId == user.Id && v.ExitAt == null, ct);
+            await RecordAsync("Validar", operatorId, user.Id, exitReason, ct);
+            return ServiceResult<AccessValidationResponse>.Success(new(AccessUserResponse.From(user), null, isInside,
+                false, exitReason, new(occupancy, options.Value.MaxOccupancy), "Salida", exitReason is null));
+        }
         var session = await FindSessionAsync(user, token, ct);
         var inside = await db.Visits.AnyAsync(v => v.UserId == user.Id && v.ExitAt == null, ct);
         var current = await db.Visits.CountAsync(v => v.ExitAt == null, ct);
@@ -99,23 +109,46 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
         return ServiceResult<VisitMessageResponse>.Success(new("Entrada registrada correctamente.", VisitResponse.From(visit)));
     }
 
-    public async Task<ServiceResult<VisitMessageResponse>> ExitAsync(int userId, int operatorId, CancellationToken ct)
+    public async Task<ServiceResult<VisitMessageResponse>> ExitAsync(ExitAccessRequest request, int operatorId, CancellationToken ct)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if ((request.Token is null) == (request.UserId is null))
+        {
+            const string invalidRequest = "Indique solo token o userId.";
+            await RecordAsync("Salida", operatorId, null, invalidRequest, ct);
+            return ServiceError.Validation(invalidRequest);
+        }
+        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(ct) : null;
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({OccupancyLock})", ct);
-        var visit = await Visits().FirstOrDefaultAsync(v => v.UserId == userId && v.ExitAt == null, ct);
+        Visit? visit;
+        if (request.Token is not null)
+        {
+            string? rejection;
+            if (!tokens.TryRead(request.Token, out var payload)) rejection = AccessQrToken.Invalid;
+            else if (payload.Kind != "S") rejection = "Escanee el QR de salida.";
+            else rejection = null;
+            visit = rejection is null
+                ? await Visits().SingleOrDefaultAsync(v => v.Id == payload.VisitId && v.UserId == payload.UserId, ct) : null;
+            rejection ??= ExitTokenRejection(payload, visit);
+            if (rejection is not null)
+            {
+                await RecordAsync("Salida", operatorId, visit?.UserId, rejection, ct);
+                if (transaction is not null) await transaction.CommitAsync(ct);
+                return ServiceError.Validation(rejection);
+            }
+        }
+        else visit = await Visits().SingleOrDefaultAsync(v => v.UserId == request.UserId && v.ExitAt == null, ct);
         if (visit is null)
         {
             const string reason = "El usuario no tiene una visita abierta.";
             await RecordAsync("Salida", operatorId, null, reason, ct);
-            await transaction.CommitAsync(ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
             return ServiceError.Validation(reason);
         }
         visit.ExitAt = clock.UtcNow.UtcDateTime;
         visit.ExitOperatorId = operatorId;
         visit.ExitOperator = await db.Users.SingleAsync(u => u.Id == operatorId, ct);
-        await RecordAsync("Salida", operatorId, visit.UserId, null, ct);
-        await transaction.CommitAsync(ct);
+        await RecordAsync("Salida", operatorId, visit.UserId, request.Token is null ? "Manual" : "QR", ct, accepted: true);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return ServiceResult<VisitMessageResponse>.Success(new("Salida registrada correctamente.", VisitResponse.From(visit)));
     }
 
@@ -140,6 +173,16 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
         return (await query.OrderByDescending(v => v.EntryAt).ToArrayAsync(ct)).Select(VisitResponse.From).ToArray();
     }
 
+    private string? ExitTokenRejection(AccessQrPayload payload, Visit? visit)
+    {
+        if (visit is null) return AccessQrToken.Invalid;
+        if (visit.ExitAt is not null) return "Este QR de salida ya fue utilizado.";
+        var entry = new DateTimeOffset(DateTime.SpecifyKind(visit.EntryAt, DateTimeKind.Utc));
+        if (payload.NotBefore != entry.ToUnixTimeSeconds() || payload.Expires != entry.AddHours(18).ToUnixTimeSeconds())
+            return AccessQrToken.Invalid;
+        return payload.IsCurrent(clock.UtcNow) ? null : AccessQrToken.NotCurrent;
+    }
+
     private IQueryable<Visit> Visits() => db.Visits.Include(v => v.User).Include(v => v.EntryOperator).Include(v => v.ExitOperator);
 
     private async Task<(User? User, string Error)> ResolveAsync(string? token, CancellationToken ct)
@@ -151,7 +194,7 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
 
     private async Task<AccessSessionResponse?> FindSessionAsync(User user, string? token, CancellationToken ct)
     {
-        if (!tokens.TryRead(token, out var payload) || payload.UserId != user.Id || !payload.IsCurrent(clock.UtcNow)) return null;
+        if (!tokens.TryRead(token, out var payload) || payload.Kind == "S" || payload.UserId != user.Id || !payload.IsCurrent(clock.UtcNow)) return null;
         if (payload.Kind == "R")
         {
             var reservation = await db.Reservations.AsNoTracking().Include(r => r.ScheduleSlot)
@@ -177,7 +220,7 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
             payload.NotBefore == start.Value.AddMinutes(-15).ToUnixTimeSeconds() && payload.Expires == end.Value.ToUnixTimeSeconds();
     }
 
-    private async Task RecordAsync(string action, int operatorId, int? userId, string? reason, CancellationToken ct)
+    private async Task RecordAsync(string action, int operatorId, int? userId, string? reason, CancellationToken ct, bool accepted = false)
     {
         db.AccessEvents.Add(new AccessEvent
         {
@@ -185,7 +228,7 @@ public sealed class AccessService(AppDbContext db, IQrTokenService tokens, IGymC
             OperatorId = operatorId,
             UserId = userId,
             OccurredAt = clock.UtcNow,
-            Result = reason is null ? "Aceptado" : "Rechazado",
+            Result = accepted || reason is null ? "Aceptado" : "Rechazado",
             Reason = reason
         });
         await db.SaveChangesAsync(ct);

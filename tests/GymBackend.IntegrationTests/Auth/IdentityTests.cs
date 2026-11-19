@@ -47,10 +47,9 @@ public sealed class IdentityTests(GymApiFactory factory)
             username,
         };
 
-    private static async Task<int> Branch(HttpClient admin, bool enabled = true)
+    private async Task<int> Branch(HttpClient admin, bool enabled = true)
     {
-        var result = await Expect(await admin.PostAsJsonAsync("/api/v1/branches", new { name = $"Branch {Guid.NewGuid():N}" }, JsonOptions, Ct), HttpStatusCode.OK);
-        var id = result.GetProperty("branch").GetProperty("id").GetInt32();
+        var id = await factory.CreateBranchAsync();
         if (!enabled) await Expect(await admin.PatchAsJsonAsync($"/api/v1/branches/{id}", new { enabled }, JsonOptions, Ct), HttpStatusCode.OK);
         return id;
     }
@@ -228,7 +227,7 @@ public sealed class IdentityTests(GymApiFactory factory)
         using var reserve = await Reserve(staff, 1, GymTime.Tomorrow());
         Assert.Equal(HttpStatusCode.Forbidden, reserve.StatusCode);
         using var createBranch = await staff.PostAsJsonAsync("/api/v1/branches", new { name = "Forbidden" }, JsonOptions, Ct);
-        Assert.Equal(HttpStatusCode.Forbidden, createBranch.StatusCode);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, createBranch.StatusCode);
         using var patchBranch = await staff.PatchAsJsonAsync("/api/v1/branches/1", new { enabled = false }, JsonOptions, Ct);
         Assert.Equal(HttpStatusCode.Forbidden, patchBranch.StatusCode);
         // Use a fixed clock and a genuine reservation/QR to verify successful entry and exit.
@@ -250,19 +249,16 @@ public sealed class IdentityTests(GymApiFactory factory)
     }
 
     [Fact]
-    public async Task Branches_CreateUpdateDuplicateVisibilityAndAuthorization()
+    public async Task Branches_PreloadedUpdateVisibilityAndAuthorization()
     {
         using var admin = await factory.CreateAdminClientAsync();
-        var name = $"Sport {Guid.NewGuid():N}";
-        var created = await Expect(await admin.PostAsJsonAsync("/api/v1/branches", new { name }, JsonOptions, Ct), HttpStatusCode.OK);
-        var id = created.GetProperty("branch").GetProperty("id").GetInt32();
-        await Expect(await admin.PostAsJsonAsync("/api/v1/branches", new { name = $" {name.ToUpperInvariant()} " }, JsonOptions, Ct), HttpStatusCode.Conflict);
-        var second = await Branch(admin);
-        await Expect(await admin.PatchAsJsonAsync($"/api/v1/branches/{second}", new { name = name.ToUpperInvariant() }, JsonOptions, Ct), HttpStatusCode.Conflict);
+        using var removed = await admin.PostAsJsonAsync("/api/v1/branches", new { name = "Forbidden" }, JsonOptions, Ct);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, removed.StatusCode);
+        var id = await Branch(admin);
+        await Expect(await admin.PatchAsJsonAsync($"/api/v1/branches/{id}", new { name = "Changed" }, JsonOptions, Ct), HttpStatusCode.BadRequest,
+            "Las ramas son precargadas; solo se pueden habilitar o deshabilitar.");
         await Expect(await admin.PatchAsJsonAsync("/api/v1/branches/2147483647", new { enabled = false }, JsonOptions, Ct), HttpStatusCode.NotFound);
-        await Expect(await admin.PostAsJsonAsync("/api/v1/branches", new { name = "<script>" }, JsonOptions, Ct), HttpStatusCode.BadRequest);
-        await Expect(await admin.PostAsJsonAsync("/api/v1/branches", new { name = new string('a', 81) }, JsonOptions, Ct), HttpStatusCode.BadRequest);
-        var updated = await Expect(await admin.PatchAsJsonAsync($"/api/v1/branches/{id}", new { name = name + " Updated", enabled = false }, JsonOptions, Ct), HttpStatusCode.OK);
+        var updated = await Expect(await admin.PatchAsJsonAsync($"/api/v1/branches/{id}", new { enabled = false }, JsonOptions, Ct), HttpStatusCode.OK);
         Assert.False(updated.GetProperty("branch").GetProperty("enabled").GetBoolean());
         var all = await Expect(await admin.GetAsync("/api/v1/branches", Ct), HttpStatusCode.OK);
         Assert.Contains(all.EnumerateArray(), b => b.GetProperty("id").GetInt32() == id);
@@ -336,6 +332,6 @@ public sealed class IdentityTests(GymApiFactory factory)
         var branchTarget = branchId.ToString(CultureInfo.InvariantCulture);
         await Expect(await admin.PatchAsJsonAsync($"/api/v1/branches/{branchId}", new { enabled = false }, JsonOptions, Ct), HttpStatusCode.OK);
         var branchAudits = await factory.WithDbAsync(db => db.AuditEvents.Where(a => a.TargetType == "SportBranch" && a.TargetId == branchTarget).OrderBy(a => a.Id).ToArrayAsync(Ct));
-        Assert.Equal(new[] { "branch.created", "branch.updated" }, branchAudits.Select(a => a.Action));
+        Assert.Equal(new[] { "branch.updated" }, branchAudits.Select(a => a.Action));
     }
 }
