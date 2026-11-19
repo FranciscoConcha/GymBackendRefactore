@@ -70,6 +70,7 @@ export interface AccessSession {
   endTime: string;
 }
 export interface QrResponse {
+  purpose: "Entrada" | "Salida";
   token: string;
   validFrom: string;
   validUntil: string;
@@ -81,6 +82,8 @@ export interface Occupancy {
   max: number;
 }
 export interface AccessValidation {
+  action: "Entrada" | "Salida";
+  canExit: boolean;
   user: AccessUser;
   session: AccessSession | null;
   inside: boolean;
@@ -374,9 +377,7 @@ export const api = {
   passwordReset: (id: number, temporaryPassword: string) =>
     post(`/auth/users/${id}/password-reset`, { temporaryPassword }),
   branches: () => request<BranchResponse[]>("/branches"),
-  createBranch: (name: string) =>
-    post<Message & { branch: BranchResponse }>("/branches", { name }),
-  updateBranch: (id: number, body: { name?: string; enabled?: boolean }) =>
+  updateBranch: (id: number, body: { enabled: boolean }) =>
     request<Message>(`/branches/${id}`, { method: "PATCH", body }),
   groups: (filters: ReportFilters = {}) =>
     request<GroupBookingResponse[]>(`/group-bookings${query(filters)}`),
@@ -396,8 +397,10 @@ export const api = {
       { token, documentType },
       key,
     ),
-  exit: (userId: number) =>
-    post<Message & { visit: VisitResponse }>("/access/exit", { userId }),
+  exit: (
+    body: { token: string; userId?: never } | { userId: number; token?: never },
+    key: string,
+  ) => post<Message & { visit: VisitResponse }>("/access/exit", body, key),
   current: () => request<CurrentAccess>("/access/current"),
   visits: (filters: ReportFilters & { userId?: number } = {}) =>
     request<VisitResponse[]>(`/visits${query(filters)}`),

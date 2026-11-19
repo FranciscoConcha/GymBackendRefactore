@@ -1,3 +1,4 @@
+import ManualExit from "../components/ManualExit";
 import { SelectField } from "../components/SelectField";
 import { lazy, Suspense, useRef, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ScanLine } from "lucide-react";
@@ -75,7 +76,7 @@ export default function AccessPanel() {
             }}
           >
             <ArrowUpRight size={19} />
-            Salida
+            Salida manual (sin QR)
           </button>
         </div>
         {action === "entry" ? (
@@ -159,65 +160,95 @@ export default function AccessPanel() {
                   {validation.occupancy.max}
                 </p>
                 {validation.reason && <p role="status">{validation.reason}</p>}
-                <SelectField
-                  label="Documento presentado"
-                  fieldClassName="field"
-                  value={documentType}
-                  disabled={busy}
-                  onChange={(e) => {
-                    setDocumentType(e.target.value as DocumentType);
-                    setVerified(false);
-                    attempt.current = null;
-                  }}
-                >
-                  <option value="CarnetIdentidad">Carnet</option>
-                  <option value="TNE">TNE</option>
-                  <option value="CredencialUniversitaria">
-                    Credencial universitaria
-                  </option>
-                </SelectField>
-                <label className="identity-check">
-                  <input
-                    type="checkbox"
-                    checked={verified}
-                    disabled={busy}
-                    onChange={(e) => setVerified(e.target.checked)}
-                  />
-                  Confirmo que el nombre y RUT coinciden con el documento
-                  presentado.
-                </label>
-                <button
-                  className="button"
-                  disabled={
-                    busy ||
-                    !verified ||
-                    !validation.canEnter ||
-                    validation.inside
-                  }
-                  onClick={() =>
-                    void perform(async () => {
-                      const body = JSON.stringify({
-                        token: code,
-                        documentType,
-                      });
-                      if (attempt.current?.body !== body)
-                        attempt.current = { body, key: crypto.randomUUID() };
-                      const result = await api.entry(
-                        code,
-                        documentType,
-                        attempt.current.key,
-                      );
-                      setMessage(result.message);
-                      setValidation(undefined);
-                      setVerified(false);
-                      setCode("");
-                      attempt.current = null;
-                      setRevision((v) => v + 1);
-                    })
-                  }
-                >
-                  Registrar entrada
-                </button>
+                {validation.action === "Salida" ? (
+                  <button
+                    className="button"
+                    disabled={busy || !validation.canExit}
+                    onClick={() =>
+                      void perform(async () => {
+                        const body = JSON.stringify({ token: code });
+                        if (attempt.current?.body !== body)
+                          attempt.current = { body, key: crypto.randomUUID() };
+                        const result = await api.exit(
+                          { token: code },
+                          attempt.current.key,
+                        );
+                        setMessage(result.message);
+                        setValidation(undefined);
+                        setCode("");
+                        attempt.current = null;
+                        setRevision((v) => v + 1);
+                      })
+                    }
+                  >
+                    Registrar salida
+                  </button>
+                ) : (
+                  <>
+                    <SelectField
+                      label="Documento presentado"
+                      fieldClassName="field"
+                      value={documentType}
+                      disabled={busy}
+                      onChange={(e) => {
+                        setDocumentType(e.target.value as DocumentType);
+                        setVerified(false);
+                        attempt.current = null;
+                      }}
+                    >
+                      <option value="CarnetIdentidad">Carnet</option>
+                      <option value="TNE">TNE</option>
+                      <option value="CredencialUniversitaria">
+                        Credencial universitaria
+                      </option>
+                    </SelectField>
+                    <label className="identity-check">
+                      <input
+                        type="checkbox"
+                        checked={verified}
+                        disabled={busy}
+                        onChange={(e) => setVerified(e.target.checked)}
+                      />
+                      Confirmo que el nombre y RUT coinciden con el documento
+                      presentado.
+                    </label>
+                    <button
+                      className="button"
+                      disabled={
+                        busy ||
+                        !verified ||
+                        !validation.canEnter ||
+                        validation.inside
+                      }
+                      onClick={() =>
+                        void perform(async () => {
+                          const body = JSON.stringify({
+                            token: code,
+                            documentType,
+                          });
+                          if (attempt.current?.body !== body)
+                            attempt.current = {
+                              body,
+                              key: crypto.randomUUID(),
+                            };
+                          const result = await api.entry(
+                            code,
+                            documentType,
+                            attempt.current.key,
+                          );
+                          setMessage(result.message);
+                          setValidation(undefined);
+                          setVerified(false);
+                          setCode("");
+                          attempt.current = null;
+                          setRevision((v) => v + 1);
+                        })
+                      }
+                    >
+                      Registrar entrada
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </>
@@ -225,8 +256,21 @@ export default function AccessPanel() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              if (
+                !window.confirm(
+                  "¿Registrar salida manual (sin QR) de esta persona?",
+                )
+              )
+                return;
               void perform(async () => {
-                const result = await api.exit(Number(exitUser));
+                const body = JSON.stringify({ userId: Number(exitUser) });
+                if (attempt.current?.body !== body)
+                  attempt.current = { body, key: crypto.randomUUID() };
+                const result = await api.exit(
+                  { userId: Number(exitUser) },
+                  attempt.current.key,
+                );
+                attempt.current = null;
                 setMessage(result.message);
                 setExitUser("");
                 setRevision((v) => v + 1);
@@ -238,7 +282,10 @@ export default function AccessPanel() {
               fieldClassName="field"
               required
               value={exitUser}
-              onChange={(e) => setExitUser(e.target.value)}
+              onChange={(e) => {
+                setExitUser(e.target.value);
+                attempt.current = null;
+              }}
             >
               <option value="">Selecciona una persona</option>
               {current.data?.people.map((p) => (
@@ -286,6 +333,11 @@ export default function AccessPanel() {
                 </span>
                 <span>Fin de sesión: {p.sessionEndTime}</span>
               </div>
+              <ManualExit
+                userId={p.userId}
+                fullName={p.fullName}
+                onExit={() => setRevision((v) => v + 1)}
+              />
             </div>
           ))}
           {current.data?.people.length === 0 && (

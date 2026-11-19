@@ -1,6 +1,7 @@
-﻿import { useState } from "react";
+import ManualExit from "../components/ManualExit";
+import { useState } from "react";
 import { ArrowRight, ScanLine, Users } from "lucide-react";
-import { api } from "../api";
+import { api, type CurrentAccess } from "../api";
 import { formatRut } from "../domain";
 import { LoadStatus, useApiData } from "../remote";
 export default function ReceptionDashboard({ onScan }: { onScan: () => void }) {
@@ -32,35 +33,49 @@ export default function ReceptionDashboard({ onScan }: { onScan: () => void }) {
           <ArrowRight size={18} />
         </button>
       </section>
-      <section className="card">
-        <div className="section-title">
-          <h2>Personas dentro</h2>
-          <button
-            className="text-button"
-            onClick={() => setRevision((v) => v + 1)}
-          >
-            Actualizar estado
-          </button>
-        </div>
-        {data?.people.map((p) => (
-          <div className="present-member" key={p.userId}>
-            <span className="avatar">{p.fullName.slice(0, 1)}</span>
-            <div>
-              <strong>{p.fullName}</strong>
-              <span>
-                {formatRut(p.rut)} · {p.category}
-              </span>
-              <span>Fin de sesión: {p.sessionEndTime}</span>
-            </div>
-          </div>
-        ))}
-        {data?.people.length === 0 && (
-          <div className="panel-empty">
-            <Users size={28} />
-            <h3>La sala está libre</h3>
-          </div>
-        )}
-      </section>
+      <PeopleInside data={data} onRefresh={() => setRevision((v) => v + 1)} />
     </div>
+  );
+}
+
+export function PeopleInside({
+  data,
+  onRefresh,
+}: {
+  data?: CurrentAccess;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="card">
+      <div className="section-title">
+        <h2>Personas dentro</h2>
+        <button className="text-button" onClick={onRefresh}>
+          Actualizar estado
+        </button>
+      </div>
+      {data?.people.map((p) => (
+        <div className="present-member" key={p.userId}>
+          <span className="avatar">{p.fullName.slice(0, 1)}</span>
+          <div>
+            <strong>{p.fullName}</strong>
+            <span>
+              {formatRut(p.rut)} · {p.category}
+            </span>
+            <span>Fin de sesión: {p.sessionEndTime}</span>
+          </div>
+          <ManualExit
+            userId={p.userId}
+            fullName={p.fullName}
+            onExit={onRefresh}
+          />
+        </div>
+      ))}
+      {data?.people.length === 0 && (
+        <div className="panel-empty">
+          <Users size={28} />
+          <h3>La sala está libre</h3>
+        </div>
+      )}
+    </section>
   );
 }

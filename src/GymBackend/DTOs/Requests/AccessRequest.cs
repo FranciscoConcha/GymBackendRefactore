@@ -9,5 +9,6 @@ public sealed class AccessRequest
 
 public sealed class ExitAccessRequest
 {
-    public int UserId { get; set; }
+    public int? UserId { get; set; }
+    public string? Token { get; set; }
 }

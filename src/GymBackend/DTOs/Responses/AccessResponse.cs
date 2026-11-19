@@ -21,7 +21,7 @@ public sealed record AccessSessionResponse(string Kind, int? ReservationId, int?
 
 public sealed record OccupancyResponse(int Current, int Max);
 public sealed record AccessValidationResponse(AccessUserResponse User, AccessSessionResponse? Session,
-    bool Inside, bool CanEnter, string? Reason, OccupancyResponse Occupancy);
+    bool Inside, bool CanEnter, string? Reason, OccupancyResponse Occupancy, string Action = "Entrada", bool CanExit = false);
 public sealed record CurrentPersonResponse(int UserId, string FullName, string Rut, string? Category, DateTime EntryAt, string SessionEndTime);
 public sealed record CurrentAccessResponse(OccupancyResponse Occupancy, CurrentPersonResponse[] People);
 public sealed record VisitMessageResponse(string Message, VisitResponse Visit);

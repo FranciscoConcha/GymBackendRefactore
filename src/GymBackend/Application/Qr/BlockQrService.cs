@@ -13,7 +13,25 @@ public sealed class BlockQrService(AppDbContext db, IQrTokenService tokens, IGym
     public async Task<ServiceResult<BlockQrResponse>> IssueAsync(int userId, int id, bool group, CancellationToken ct)
     {
         var user = await db.Users.Include(u => u.SportBranch).SingleOrDefaultAsync(u => u.Id == userId, ct);
-        if (user is null || !user.Enabled || user.AccountStatus != AccountStatus.Activa)
+        if (user is null) return ServiceError.NotFound("Reserva no encontrada.");
+        var open = await db.Visits.Include(v => v.Reservation!).ThenInclude(r => r.ScheduleSlot)
+            .Include(v => v.GroupBooking!).ThenInclude(g => g.ScheduleSlot)
+            .SingleOrDefaultAsync(v => v.UserId == userId && v.ExitAt == null, ct);
+        if (open is not null)
+        {
+            var ownsResource = group
+                ? await db.GroupBookings.AnyAsync(g => g.Id == id && (g.Id == open.GroupBookingId ||
+                    user.Category == UserCategories.Deportista && g.SportBranchId == user.SportBranchId), ct)
+                : await db.Reservations.AnyAsync(r => r.Id == id && r.UserId == userId, ct);
+            if (!ownsResource) return ServiceError.NotFound("Reserva no encontrada.");
+            var entry = new DateTimeOffset(DateTime.SpecifyKind(open.EntryAt, DateTimeKind.Utc));
+            var exitPayload = new AccessQrPayload(2, "S", null, null, userId, entry.ToUnixTimeSeconds(), entry.AddHours(18).ToUnixTimeSeconds(), open.Id);
+            return ServiceResult<BlockQrResponse>.Success(new(tokens.Generate(exitPayload), entry, entry.AddHours(18),
+                new(user.FirstName, user.LastName, user.FullName, user.Rut, user.Category,
+                    user.SportBranch is { } branch ? new(branch.Id, branch.Name) : null),
+                open.Reservation is { } reservation ? AccessSessionResponse.From(reservation) : AccessSessionResponse.From(open.GroupBooking!), "Salida"));
+        }
+        if (!user.Enabled || user.AccountStatus != AccountStatus.Activa)
             return ServiceError.NotFound("Reserva no encontrada.");
         AccessSessionResponse session;
         DateOnly date;

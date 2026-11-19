@@ -296,6 +296,14 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         return await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
     }
 
+    public Task<int> CreateBranchAsync() => WithDbAsync(async db =>
+    {
+        var branch = new SportBranch { Name = $"Test {Guid.NewGuid():N}", CreatedAt = DateTimeOffset.UtcNow };
+        db.SportBranches.Add(branch);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return branch.Id;
+    });
+
     public Task<ScheduleSlot> CreateSlotAsync(DayOfWeek day, TimeOnly start, TimeOnly end, int capacity = 20) =>
         WithDbAsync(async db =>
         {

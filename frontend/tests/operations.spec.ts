@@ -30,8 +30,11 @@ test("acceso en dos pasos; salida por persona sin reutilizar QR", async ({
   const entry = mock.calls.find((c) => c.path === "/access/entry")!;
   expect(entry.body).toEqual({ token: "signed-R-1", documentType: "TNE" });
   expect(entry.headers["idempotency-key"]).toBeTruthy();
-  await page.getByRole("button", { name: "Salida", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Salida manual (sin QR)", exact: true })
+    .click();
   await page.getByLabel("Persona dentro").selectOption("1");
+  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Registrar salida" }).click();
   await expect(
     page.getByText("Salida registrada.", { exact: true }),
@@ -144,11 +147,21 @@ test("usuarios y ramas se administran mediante mutaciones CSRF", async ({
 }) => {
   const mock = await mockApi(page, { role: "Admin" });
   await page.goto("/admin/ramas");
-  await page.getByLabel("Nombre de la rama", { exact: true }).fill("Natación");
-  await page.getByRole("button", { name: "Crear rama", exact: true }).click();
   await expect(
-    page.getByLabel("Nombre de Natación", { exact: true }),
+    page.getByRole("button", { name: "Crear rama", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("textbox")).toHaveCount(0);
+  await page.getByRole("button", { name: "Deshabilitar rama" }).first().click();
+  await expect(
+    page.getByRole("button", { name: "Habilitar rama", exact: true }),
   ).toBeVisible();
+  expect(
+    mock.calls.find((c) => c.path === "/branches/1" && c.method === "PATCH")
+      ?.body,
+  ).toEqual({ enabled: false });
+  expect(
+    mock.calls.some((c) => c.path === "/branches" && c.method === "POST"),
+  ).toBe(false);
   await navigate(page, "Usuarios");
   await page
     .getByRole("button", { name: "Agregar usuario", exact: true })
@@ -171,4 +184,105 @@ test("usuarios y ramas se administran mediante mutaciones CSRF", async ({
     mock.calls.find((c) => c.path === "/auth/register")?.body,
   ).not.toHaveProperty("password");
   expect(mock.csrfFailures).toEqual([]);
+});
+
+test("operador valida salida sin documento, conserva clave al reintentar y rechaza reutilización", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { role: "Recepcionista" });
+  const visit = {
+    id: 1,
+    userId: 1,
+    fullName: mock.student.fullName,
+    rut: mock.student.rut,
+    reservationId: 1,
+    groupBookingId: null,
+    date: mock.date,
+    entryAt: new Date().toISOString(),
+    exitAt: null,
+    stayMinutes: null,
+    documentType: "TNE" as const,
+    entryOperator: "Equipo UCN",
+    exitOperator: null,
+  };
+  mock.visits.push(visit);
+  await page.goto("/recepcion/acceso");
+  await page.getByLabel("Código de la reserva").fill("signed-S-1");
+  await page.getByRole("button", { name: "Validar código" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Alex Martínez" }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Documento presentado", { exact: true }),
+  ).toHaveCount(0);
+  expect(mock.visits[0].exitAt).toBeNull();
+  mock.failNext("/access/exit", 503, "Reintente la salida.");
+  await page
+    .getByRole("button", { name: "Registrar salida", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toHaveText("Reintente la salida.");
+  await page
+    .getByRole("button", { name: "Registrar salida", exact: true })
+    .click();
+  await expect(
+    page.getByText("Salida registrada.", { exact: true }),
+  ).toBeVisible();
+  const calls = mock.calls.filter((c) => c.path === "/access/exit");
+  expect(calls).toHaveLength(2);
+  expect(calls[1].body).toEqual({ token: "signed-S-1" });
+  expect(calls[1].headers["x-gym-csrf"]).toBe("1");
+  expect(calls[0].headers["idempotency-key"]).toBeTruthy();
+  expect(calls[1].headers["idempotency-key"]).toBe(
+    calls[0].headers["idempotency-key"],
+  );
+  await page.getByLabel("Código de la reserva").fill("signed-S-1");
+  await page.getByRole("button", { name: "Validar código" }).click();
+  await expect(
+    page.getByText("Este QR de salida ya fue utilizado."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Registrar salida", exact: true }),
+  ).toBeDisabled();
+  expect(
+    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
+  ).toEqual([0, 0]);
+  expect(mock.csrfFailures).toEqual([]);
+  expect(mock.unknown).toEqual([]);
+});
+
+test("Estado actual permite cancelar y confirmar salida manual por persona", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { role: "Recepcionista" });
+  mock.visits.push({
+    id: 1,
+    userId: 1,
+    fullName: mock.student.fullName,
+    rut: mock.student.rut,
+    reservationId: 1,
+    groupBookingId: null,
+    date: mock.date,
+    entryAt: new Date().toISOString(),
+    exitAt: null,
+    stayMinutes: null,
+    documentType: "TNE",
+    entryOperator: "Equipo UCN",
+    exitOperator: null,
+  });
+  await page.goto("/recepcion/inicio");
+  await expect(
+    page.getByText("Salida manual (sin QR)", { exact: true }),
+  ).toBeVisible();
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Marcar salida" }).click();
+  expect(mock.calls.some((c) => c.path === "/access/exit")).toBe(false);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Marcar salida" }).click();
+  await expect(
+    page.getByRole("heading", { name: "La sala está libre" }),
+  ).toBeVisible();
+  const call = mock.calls.find((c) => c.path === "/access/exit")!;
+  expect(call.body).toEqual({ userId: 1 });
+  expect(call.headers["x-gym-csrf"]).toBe("1");
+  expect(call.headers["idempotency-key"]).toBeTruthy();
 });

@@ -44,8 +44,7 @@ public sealed class DailyBookingTests(GymApiFactory factory)
         var user = await factory.CreateClientUserAsync();
         using var client = user.Client;
         using var admin = await factory.CreateAdminClientAsync();
-        var branch = await Expect(await admin.PostAsJsonAsync("/api/v1/branches", new { name = $"Sport {Guid.NewGuid():N}" }, JsonOptions, Ct), HttpStatusCode.OK);
-        var branchId = branch.GetProperty("branch").GetProperty("id").GetInt32();
+        var branchId = await factory.CreateBranchAsync();
         int? snapshotBranch = category == UserCategories.Deportista ? branchId : null;
         await Expect(await admin.PatchAsJsonAsync($"/api/v1/auth/users/{user.UserId}", new { category, sportBranchId = snapshotBranch }, JsonOptions, Ct), HttpStatusCode.OK);
         var date = GymTime.Tomorrow();
@@ -53,8 +52,7 @@ public sealed class DailyBookingTests(GymApiFactory factory)
         var second = await factory.CreateSlotAsync(date.DayOfWeek, new TimeOnly(10, 0), new TimeOnly(11, 0));
         var reservation = await Reservation(client, first.Id, date);
         await Reservation(client, second.Id, date);
-        var another = await Expect(await admin.PostAsJsonAsync("/api/v1/branches", new { name = $"Sport {Guid.NewGuid():N}" }, JsonOptions, Ct), HttpStatusCode.OK);
-        var anotherId = another.GetProperty("branch").GetProperty("id").GetInt32();
+        var anotherId = await factory.CreateBranchAsync();
         await Expect(await admin.PatchAsJsonAsync($"/api/v1/auth/users/{user.UserId}", new { category = UserCategories.Deportista, sportBranchId = anotherId }, JsonOptions, Ct), HttpStatusCode.OK);
         var id = reservation.GetProperty("id").GetInt32();
         var stored = await factory.WithDbAsync(db => db.Reservations.SingleAsync(r => r.Id == id, Ct));

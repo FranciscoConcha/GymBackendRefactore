@@ -40,6 +40,11 @@ public static class ServiceCollectionExtensions
                 "Email:Pickup requiere Development y un PickupDirectory absoluto.")
             .Validate(o => o.Mode != EmailMode.Smtp || (!string.IsNullOrWhiteSpace(o.Host) && o.Port is >= 1 and <= 65535),
                 "Configure Email:Host y Email:Port para Smtp.")
+            .Validate(o => o.Mode != EmailMode.BrevoApi || !string.IsNullOrWhiteSpace(o.ApiKey),
+                "Configure Email:ApiKey para BrevoApi.")
+            .Validate(o => o.Mode != EmailMode.BrevoApi ||
+                (Uri.TryCreate(o.ApiBaseUrl, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps),
+                "Configure Email:ApiBaseUrl con una URL absoluta https para BrevoApi.")
             .Validate(o => o.Mode == EmailMode.Disabled || GymBackend.Application.Auth.InputRules.IsValidEmail(o.From),
                 "Configure Email:From con un correo válido.")
             .ValidateOnStart();

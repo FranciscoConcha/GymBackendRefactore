@@ -1,3 +1,4 @@
+import { PeopleInside } from "./ReceptionDashboard";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   CalendarDays,
@@ -64,6 +65,7 @@ export default function AdminDashboard({
     error,
     loading,
   } = useApiData(() => api.metrics(filters), [filters, revision]);
+  const current = useApiData(() => api.current(), [revision]);
   const [lastOccupancy, setLastOccupancy] = useState<Occupancy>();
   useEffect(() => {
     if (m) setLastOccupancy(m.occupancy);
@@ -217,6 +219,11 @@ export default function AdminDashboard({
           </div>
         </>
       )}
+      <LoadStatus error={current.error} loading={current.loading} />
+      <PeopleInside
+        data={current.data}
+        onRefresh={() => setRevision((v) => v + 1)}
+      />
       <div className="quick-stats">
         <button className="card" onClick={onAccess}>
           <ScanLine />

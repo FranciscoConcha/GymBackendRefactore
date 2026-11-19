@@ -61,3 +61,19 @@ it("acepta respuestas vacías 204", async () => {
   );
   await expect(request("/test", { method: "DELETE" })).resolves.toBeUndefined();
 });
+
+it.each([{ token: "signed-exit" }, { userId: 7 }])(
+  "env?a salida exclusiva %j con CSRF y clave",
+  async (body) => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetcher);
+    await api.exit(body, "exit-key");
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/access/exit");
+    const options = fetcher.mock.calls[0][1];
+    expect(JSON.parse(options.body)).toEqual(body);
+    expect(options.headers).toMatchObject({
+      "X-Gym-Csrf": "1",
+      "Idempotency-Key": "exit-key",
+    });
+  },
+);

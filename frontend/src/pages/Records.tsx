@@ -64,7 +64,6 @@ export function ReportFilterFields({
 }
 export function BranchesPanel({ onChange }: { onChange: () => void }) {
   const [revision, setRevision] = useState(0);
-  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const branches = useApiData(() => api.branches(), [revision]);
@@ -87,47 +86,9 @@ export function BranchesPanel({ onChange }: { onChange: () => void }) {
     <section className="card">
       <h2>Ramas deportivas</h2>
       <LoadStatus error={branches.error} loading={branches.loading} />
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void mutate(async () => {
-            await api.createBranch(name);
-            setName("");
-          });
-        }}
-      >
-        <label className="field">
-          Nombre de la rama
-          <input
-            required
-            maxLength={80}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <button className="button" disabled={busy}>
-          Crear rama
-        </button>
-      </form>
       {branches.data?.map((b) => (
-        <form
-          className="group-record"
-          key={`${b.id}-${b.name}`}
-          onSubmit={(e) => {
-            e.preventDefault();
-            const data = new FormData(e.currentTarget);
-            void mutate(() =>
-              api.updateBranch(b.id, { name: String(data.get("name")) }),
-            );
-          }}
-        >
-          <label className="field">
-            Nombre de {b.name}
-            <input name="name" defaultValue={b.name} required maxLength={80} />
-          </label>
-          <button className="text-button" disabled={busy}>
-            Guardar nombre
-          </button>
+        <div className="group-record" key={b.id}>
+          <strong>{b.name}</strong>
           <button
             type="button"
             className="text-button"
@@ -138,7 +99,7 @@ export function BranchesPanel({ onChange }: { onChange: () => void }) {
           >
             {b.enabled ? "Deshabilitar" : "Habilitar"} rama
           </button>
-        </form>
+        </div>
       ))}
       {error && (
         <p role="alert" className="form-error">

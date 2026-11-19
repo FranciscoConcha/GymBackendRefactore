@@ -226,7 +226,57 @@ test("Mi código QR incluye grupos de la rama aunque no haya reservas individual
   });
   await page.goto("/estudiante/qr");
   await expect(page.locator(".ticket-code")).toHaveText("signed-G-5");
+  await expect(page.locator(".qr-person")).toContainText(mock.student.fullName);
+  await expect(page.locator(".qr-person")).toContainText("12.345.678-5");
   expect(mock.calls.some((c) => c.path === "/me/group-bookings/5/qr")).toBe(
     true,
+  );
+});
+
+test("QR abierto alterna entrada, salida y entrada con refresco automático", async ({
+  page,
+}) => {
+  const mock = await mockApi(page);
+  await login(page);
+  await reserve(page);
+  await page.clock.install();
+  await navigate(page, "Mi código QR");
+  await expect(
+    page.getByRole("heading", { name: "QR de entrada", exact: true }),
+  ).toBeVisible();
+  const visit = {
+    id: 1,
+    userId: 1,
+    fullName: mock.student.fullName,
+    rut: mock.student.rut,
+    reservationId: 1,
+    groupBookingId: null,
+    date: mock.date,
+    entryAt: new Date().toISOString(),
+    exitAt: null as string | null,
+    stayMinutes: null,
+    documentType: "TNE" as const,
+    entryOperator: "Equipo UCN",
+    exitOperator: null,
+  };
+  mock.visits.push(visit);
+  await page.clock.runFor(5000);
+  await expect(
+    page.getByRole("heading", { name: "QR de salida", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".ticket-code")).toHaveText("signed-S-1");
+  await expect(page.getByText("Muéstralo al salir")).toBeVisible();
+  await expect(page.locator(".qr-frame")).toHaveClass(/qr-exit/);
+  visit.exitAt = new Date().toISOString();
+  await page.clock.runFor(5000);
+  await expect(
+    page.getByRole("heading", { name: "QR de entrada", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".ticket-code")).toHaveText("signed-R-1");
+  await navigate(page, "Mis visitas");
+  const queries = mock.calls.filter((c) => c.path.endsWith("/qr")).length;
+  await page.clock.runFor(10000);
+  expect(mock.calls.filter((c) => c.path.endsWith("/qr"))).toHaveLength(
+    queries,
   );
 });
