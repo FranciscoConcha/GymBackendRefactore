@@ -2333,3 +2333,7 @@ tr:hover td {
     animation: none !important;
   }
 }
+
+.qr-frame.qr-exit {
+  border: 3px solid var(--gold, #c5a349);
+}

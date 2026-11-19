@@ -1,8 +1,8 @@
 ﻿import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { api } from "../api";
+import { api, type QrResponse } from "../api";
 import { formatRut, qrValidity } from "../domain";
-import { LoadStatus, useApiData } from "../remote";
+import { LoadStatus } from "../remote";
 export default function BlockQr({
   id,
   group = false,
@@ -10,37 +10,82 @@ export default function BlockQr({
   id: number;
   group?: boolean;
 }) {
-  const { data, error, loading } = useApiData(
-    () => api.qr(id, group),
-    [id, group],
-  );
+  const [data, setData] = useState<QrResponse>();
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15000);
-    return () => clearInterval(timer);
-  }, []);
+    let active = true;
+    let pending = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    setData(undefined);
+    setError("");
+    setLoading(true);
+    async function refresh() {
+      if (pending || document.hidden) return;
+      pending = true;
+      try {
+        const value = await api.qr(id, group);
+        if (active) {
+          setData(value);
+          setError("");
+          setNow(Date.now());
+        }
+      } catch (cause) {
+        if (active)
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "No se pudo consultar el QR.",
+          );
+      } finally {
+        pending = false;
+        if (active) setLoading(false);
+      }
+    }
+    function visibility() {
+      clearInterval(timer);
+      if (!document.hidden) {
+        void refresh();
+        timer = setInterval(() => void refresh(), 5000);
+      }
+    }
+    visibility();
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [id, group]);
+  const title = data?.purpose === "Salida" ? "QR de salida" : "QR de entrada";
   return (
     <>
       <LoadStatus error={error} loading={loading} />
       {data && (
         <>
+          <h2>{title}</h2>
           <div className="qr-person">
             <h2>{data.user.fullName}</h2>
             <strong className="qr-rut">{formatRut(data.user.rut)}</strong>
             <span>{data.user.category}</span>
             <span>{data.user.sportBranch?.name}</span>
           </div>
-          <div className="qr-frame">
+          <div
+            className={`qr-frame ${data.purpose === "Salida" ? "qr-exit" : ""}`}
+          >
             <QRCodeSVG
               value={data.token}
               size={224}
               level="M"
               marginSize={3}
-              title="Código QR de la reserva"
+              title={title}
             />
           </div>
           <p role="status">
-            {qrValidity(data.validFrom, data.validUntil, now)}
+            {data.purpose === "Salida"
+              ? "Muéstralo al salir"
+              : qrValidity(data.validFrom, data.validUntil, now)}
           </p>
           <p>
             Vigencia:{" "}

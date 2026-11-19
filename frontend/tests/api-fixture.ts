@@ -220,6 +220,7 @@ export async function mockApi(page: Page, options: MockOptions = {}) {
       (path === "/reservations" ||
         path === "/group-bookings" ||
         path === "/access/entry" ||
+        path === "/access/exit" ||
         /\/user-imports\/\d+\/confirm$/.test(path));
     const key = headers["idempotency-key"];
     if (path === "/group-bookings" && method === "POST" && !key)
@@ -274,16 +275,14 @@ export async function mockApi(page: Page, options: MockOptions = {}) {
         202,
       );
     if (path === "/branches" && method === "GET") return send(branches);
-    if (path === "/branches" && method === "POST") {
-      const branch = {
-        id: branches.length + 1,
-        name: String(body.name),
-        enabled: true,
-      };
-      branches.push(branch);
-      return send({ message: "Rama creada.", branch });
-    }
     if (/^\/branches\/\d+$/.test(path) && method === "PATCH") {
+      if (
+        Object.keys(body).some((key) => key !== "enabled") ||
+        typeof body.enabled !== "boolean"
+      )
+        return error(
+          "Las ramas son precargadas; solo se pueden habilitar o deshabilitar.",
+        );
       Object.assign(
         branches.find((b) => b.id === Number(path.split("/").at(-1))),
         body,
@@ -358,11 +357,21 @@ export async function mockApi(page: Page, options: MockOptions = {}) {
     if (/^\/me\/(reservations|group-bookings)\/\d+\/qr$/.test(path)) {
       const group = path.includes("group-bookings"),
         id = Number(path.split("/").at(-2));
+      const visit = visits.find((v) => v.userId === session!.id && !v.exitAt);
       return send({
-        token: `signed-${group ? "G" : "R"}-${id}`,
-        validFrom: new Date(morning.getTime() + 105 * 60000).toISOString(),
-        validUntil: new Date(morning.getTime() + 210 * 60000).toISOString(),
-        user: student,
+        purpose: visit ? "Salida" : "Entrada",
+        token: visit
+          ? `signed-S-${visit.id}`
+          : `signed-${group ? "G" : "R"}-${id}`,
+        validFrom: visit
+          ? visit.entryAt
+          : new Date(morning.getTime() + 105 * 60000).toISOString(),
+        validUntil: visit
+          ? new Date(
+              new Date(visit.entryAt).getTime() + 18 * 3600000,
+            ).toISOString()
+          : new Date(morning.getTime() + 210 * 60000).toISOString(),
+        user: session!,
         session: {
           kind: group ? "Grupo" : "Reserva",
           reservationId: group ? null : id,
@@ -374,8 +383,15 @@ export async function mockApi(page: Page, options: MockOptions = {}) {
       });
     }
     if (path === "/access/current") return send(current());
-    if (path === "/access/validate")
+    if (path === "/access/validate") {
+      const exiting = String(body.token).startsWith("signed-S-");
+      const visit = visits.find((v) => `signed-S-${v.id}` === body.token);
       return send({
+        action: exiting ? "Salida" : "Entrada",
+        canExit: exiting && !!visit && !visit.exitAt,
+        ...(exiting && (!visit || visit.exitAt)
+          ? { reason: "Este QR de salida ya fue utilizado." }
+          : {}),
         user: student,
         session: {
           kind: "Reserva",
@@ -386,9 +402,10 @@ export async function mockApi(page: Page, options: MockOptions = {}) {
           endTime: "09:30",
         },
         inside: current().people.some((p) => p.userId === student.id),
-        canEnter: true,
+        canEnter: !exiting,
         occupancy: occupancy(),
       });
+    }
     if (path === "/access/entry") {
       if (!body.documentType) return error("Seleccione documento.");
       if (current().people.some((p) => p.userId === student.id))
@@ -414,12 +431,21 @@ export async function mockApi(page: Page, options: MockOptions = {}) {
       return success({ message: "Entrada registrada.", visit });
     }
     if (path === "/access/exit") {
-      const visit = visits.find((v) => v.userId === body.userId && !v.exitAt);
+      if (!!body.token === !!body.userId) return error("Envíe token o userId.");
+      if (body.token && !String(body.token).startsWith("signed-S-"))
+        return error("Escanee el QR de salida.");
+      const visit = visits.find(
+        (v) =>
+          !v.exitAt &&
+          (body.token
+            ? `signed-S-${v.id}` === body.token
+            : v.userId === body.userId),
+      );
       if (!visit) return error("No hay una visita abierta.");
       visit.exitAt = timestamp;
       visit.exitOperator = session!.fullName;
       visit.stayMinutes = 0;
-      return send({ message: "Salida registrada.", visit });
+      return success({ message: "Salida registrada.", visit });
     }
     if (path === "/visits" || path === "/me/visits") return send(visits);
     if (path === "/me/alerts" || path === "/admin/alerts") return send(alerts);
