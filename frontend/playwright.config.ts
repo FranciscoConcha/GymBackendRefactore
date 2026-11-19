@@ -25,7 +25,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: "npm.cmd run dev -- --port 4173",
+        command: `${process.platform === "win32" ? "npm.cmd" : "npm"} run dev -- --port 4173`,
         url: "http://127.0.0.1:4173",
         reuseExistingServer: !process.env.CI,
       },
