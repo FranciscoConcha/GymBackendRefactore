@@ -9,7 +9,7 @@ namespace GymBackend.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.V1)]
-[Authorize(Roles = Roles.Admin)]
+[Authorize(Roles = Roles.Admin + "," + Roles.Recepcionista)]
 public class AttendanceController(IAttendanceService service) : ControllerBase
 {
     [HttpPost("entry")]

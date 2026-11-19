@@ -31,6 +31,13 @@ public static class DevelopmentSeeder
             })));
             await db.SaveChangesAsync(ct);
         }
+        var clock = scope.ServiceProvider.GetRequiredService<GymBackend.Time.IGymClock>();
+        if (!await db.SportBranches.AnyAsync(ct))
+        {
+            db.SportBranches.AddRange(new SportBranch { Name = "B\u00e1squetbol", CreatedAt = clock.UtcNow },
+                new SportBranch { Name = "V\u00f3leibol", CreatedAt = clock.UtcNow });
+            await db.SaveChangesAsync(ct);
+        }
         var bootstrap = scope.ServiceProvider.GetRequiredService<IOptions<BootstrapOptions>>().Value;
         var adminPassword = bootstrap.AdminPassword;
         if (!await db.Users.AnyAsync(user => user.Role == Roles.Admin, ct) && !string.IsNullOrWhiteSpace(adminPassword))
@@ -44,11 +51,13 @@ public static class DevelopmentSeeder
             db.Users.Add(new User
             {
                 Rut = rut,
-                Name = UserTypes.Administrator,
+                FirstName = "Administrador",
+                LastName = "Sistema",
+                CreatedAt = clock.UtcNow,
+                UpdatedAt = clock.UtcNow,
                 Email = email.Trim().ToLowerInvariant(),
                 Username = username.Trim().ToLowerInvariant(),
                 PasswordHash = passwordHasher.Hash(adminPassword),
-                UserType = UserTypes.Administrator,
                 Role = Roles.Admin,
                 Enabled = true,
             });

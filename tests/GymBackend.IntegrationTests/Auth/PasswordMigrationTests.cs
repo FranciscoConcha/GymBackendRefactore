@@ -34,13 +34,14 @@ public sealed class PasswordMigrationTests(GymApiFactory factory)
             db.Users.Add(new User
             {
                 Rut = rut,
-                Name = "Migration",
+                FirstName = "Migration",
+                LastName = "Test",
                 Email = $"{username}@example.test",
                 Username = admin ? username : "",
                 PasswordHash = oldHash,
                 Enabled = true,
-                Role = admin ? Roles.Admin : Roles.Client,
-                UserType = admin ? UserTypes.Administrator : UserTypes.Student,
+                Role = admin ? Roles.Admin : Roles.Usuario,
+                Category = admin ? null : UserCategories.Estudiante,
             });
             await db.SaveChangesAsync(Ct);
             return true;

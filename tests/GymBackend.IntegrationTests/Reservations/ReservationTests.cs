@@ -50,7 +50,7 @@ public sealed class ReservationTests(GymApiFactory factory)
         using var client = user.Client;
         var missing = new GymBackend.Models.ScheduleSlot { Day = slot.Day, StartTime = slot.StartTime, EndTime = slot.EndTime, Zone = Guid.NewGuid().ToString() };
         await Expect(await Reserve(client, missing.Id, date), HttpStatusCode.BadRequest, "El bloque seleccionado no está disponible.");
-        using var ghost = factory.CreateClientWithToken(factory.CreateJwt(999999, "Cliente", TestData.NextRut()));
+        using var ghost = factory.CreateClientWithToken(factory.CreateJwt(999999, "Usuario", TestData.NextRut()));
         await Expect(await Reserve(ghost, slot.Id, date), HttpStatusCode.Unauthorized, "La sesión no corresponde a un usuario válido.");
         var result = await Reservation(client, slot.Id, date);
         Assert.Equal("Reservado", result.GetProperty("status").GetString());
