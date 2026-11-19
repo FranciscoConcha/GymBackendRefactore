@@ -29,7 +29,11 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddGymCors();
 builder.Services.AddReservationServices();
 builder.Services.AddAuthServices();
-builder.Services.AddAttendanceServices();
+builder.Services.AddScoped<GymBackend.Application.Qr.IQrTokenService, GymBackend.Application.Qr.QrTokenService>();
+builder.Services.AddScoped<GymBackend.Application.Qr.IQrService, GymBackend.Application.Qr.QrService>();
+builder.Services.AddScoped<GymBackend.Application.Access.AccessService>();
+builder.Services.AddScoped<AccessAttemptFilter>();
+builder.Services.AddScoped<GymBackend.Application.Groups.GroupBookingService>();
 
 var app = builder.Build();
 app.UseGymObservability();
@@ -43,7 +47,6 @@ if (app.Environment.IsDevelopment())
 app.UseRouting();
 app.UseCors("Frontend");
 app.UseMiddleware<CsrfProtectionMiddleware>();
-app.UseRateLimiter();
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
@@ -51,6 +54,7 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
 app.MapHealthEndpoints();
 

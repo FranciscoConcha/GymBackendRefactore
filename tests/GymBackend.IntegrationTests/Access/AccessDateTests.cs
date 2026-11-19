@@ -3,9 +3,9 @@ using GymBackend.IntegrationTests.Infrastructure;
 using Microsoft.Extensions.Time.Testing;
 using static GymBackend.IntegrationTests.Infrastructure.Api;
 
-namespace GymBackend.IntegrationTests.Attendance;
+namespace GymBackend.IntegrationTests.Access;
 
-public sealed class AttendanceDateTests(GymApiFactory factory)
+public sealed class AccessDateTests(GymApiFactory factory)
 {
     [Theory]
     [InlineData(-7)]
@@ -24,15 +24,15 @@ public sealed class AttendanceDateTests(GymApiFactory factory)
         var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(9, 0), new TimeOnly(10, 0));
         var other = await factory.InsertReservationAsync(user.UserId, slot.Id, today.AddDays(otherDateOffset));
         var token = await Api.Qr(client);
-        await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.BadRequest,
+        await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.BadRequest,
             "El usuario no se encuentra registrado en el horario de ingreso.");
         var current = await factory.InsertReservationAsync(user.UserId, slot.Id, today);
-        var entry = await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.OK, "Entrada registrada correctamente.");
-        var attendance = entry.GetProperty("attendance");
+        var entry = await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.OK, "Entrada registrada correctamente.");
+        var attendance = entry.GetProperty("visit");
         Assert.Equal(current.Id, attendance.GetProperty("reservationId").GetInt32());
         Assert.NotEqual(other.Id, attendance.GetProperty("reservationId").GetInt32());
         Assert.Equal("2026-11-17", attendance.GetProperty("date").GetString());
         Assert.Equal(user.Rut, attendance.GetProperty("rut").GetString());
-        Assert.Equal($"Test {user.Rut}", attendance.GetProperty("userName").GetString());
+        Assert.Equal($"Test {user.Rut}", attendance.GetProperty("fullName").GetString());
     }
 }

@@ -55,6 +55,7 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddOptions<GymOptions>()
             .BindConfiguration(GymOptions.SectionName)
+            .Validate(o => o.MaxOccupancy > 0, "Gym:MaxOccupancy debe ser mayor que cero.")
             .Validate(o => TimeZoneInfo.TryFindSystemTimeZoneById(o.TimeZone, out _),
                 "Configure Gym:TimeZone con un identificador IANA válido (p. ej. America/Santiago).")
             .ValidateOnStart();

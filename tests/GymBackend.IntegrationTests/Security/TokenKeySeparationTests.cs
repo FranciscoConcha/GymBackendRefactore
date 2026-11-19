@@ -46,9 +46,9 @@ public sealed class TokenKeySeparationTests(GymApiFactory factory)
         using var admin = await factory.CreateAdminClientAsync();
         foreach (var action in new[] { "entry", "exit" })
         {
-            await Expect(await Api.Attendance(admin, action, QrTokenFormat.Create(user.Rut, factory.JwtKey, today)),
+            await Expect(await Api.Access(admin, action, QrTokenFormat.Create(user.Rut, factory.JwtKey, today)),
                 HttpStatusCode.BadRequest, "Código QR inválido.");
-            await Expect(await Api.Attendance(admin, action, client.DefaultRequestHeaders.Authorization!.Parameter!),
+            await Expect(await Api.Access(admin, action, client.DefaultRequestHeaders.Authorization!.Parameter!),
                 HttpStatusCode.BadRequest, "Código QR inválido.");
         }
     }

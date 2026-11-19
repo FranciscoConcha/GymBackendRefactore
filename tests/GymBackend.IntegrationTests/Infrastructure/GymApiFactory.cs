@@ -12,6 +12,7 @@ using GymBackend.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -61,12 +62,31 @@ public sealed class GymApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
             SetEnvironment("Qr__SigningKey", QrKey);
             // Umbral alto: las pruebas inician sesiÃ³n muchas veces; las de lÃ­mite usan un host derivado.
             SetEnvironment("RateLimiting__Login__PermitLimit", "100000");
-            SetEnvironment("Database__Initialize", "true");
+            SetEnvironment("Database__Initialize", "false");
             SetEnvironment("Bootstrap__AdminRut", AdminRut);
             SetEnvironment("Bootstrap__AdminEmail", AdminEmail);
             SetEnvironment("Bootstrap__AdminUsername", AdminUsername);
             SetEnvironment("Bootstrap__AdminPassword", AdminPassword);
             _ = Server;
+            // B2 intentionally supplies no migrations. Test the current model in an ephemeral database.
+            await WithDbAsync(async db =>
+            {
+                await db.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+                db.Users.Add(new User
+                {
+                    Rut = AdminRut,
+                    Email = AdminEmail,
+                    Username = AdminUsername,
+                    FirstName = "Admin",
+                    LastName = "Test",
+                    Role = Roles.Admin,
+                    PasswordHash = new GymBackend.Application.Auth.Pbkdf2PasswordHasher().Hash(AdminPassword),
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                });
+                db.SportBranches.Add(new SportBranch { Name = "Fixture", CreatedAt = DateTimeOffset.UtcNow });
+                await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            });
         }
         catch
         {

@@ -48,7 +48,7 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
 
     public async Task<ServiceResult<ReservationMessageResponse>> CreateAsync(int userId, CreateReservationRequest request, CancellationToken ct = default)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await using var transaction = context.Database.CurrentTransaction is null ? await context.Database.BeginTransactionAsync(ct) : null;
         await context.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT 1 FROM \"Users\" WHERE \"Id\" = {userId} FOR UPDATE", ct);
         await context.Database.ExecuteSqlInterpolatedAsync(
@@ -73,17 +73,20 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
 
         var reservedCount = await context.Reservations.CountAsync(reservation =>
             reservation.ScheduleSlotId == schedule.Id && reservation.Date == request.Date &&
-            reservation.Status == ReservationStatus.Reserved, ct);
+            (reservation.Status == ReservationStatus.Reserved || reservation.Status == ReservationStatus.Attended), ct);
+
+        reservedCount += await context.GroupBookings.Where(g => g.ScheduleSlotId == schedule.Id && g.Date == request.Date
+            && g.Status == "Activa").SumAsync(g => g.Seats, ct);
 
         if (!ReservationRules.HasAvailableCapacity(reservedCount, schedule.Capacity))
         {
-            return ServiceError.Validation("No quedan cupos disponibles para este bloque.");
+            return ServiceError.Conflict("No quedan cupos disponibles para este bloque.");
         }
 
         var alreadyReserved = await context.Reservations.AnyAsync(reservation =>
             reservation.UserId == userId &&
             reservation.ScheduleSlotId == schedule.Id && reservation.Date == request.Date &&
-            reservation.Status == ReservationStatus.Reserved, ct);
+            (reservation.Status == ReservationStatus.Reserved || reservation.Status == ReservationStatus.Attended), ct);
 
         if (alreadyReserved)
         {
@@ -118,13 +121,19 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
             return ServiceError.Conflict("Ya tienes una reserva para este bloque.");
         }
 
-        await transaction.CommitAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
 
         return ServiceResult<ReservationMessageResponse>.Success(new ReservationMessageResponse("Reserva creada correctamente.", ReservationResponse.From(reservation)));
     }
 
     public async Task<ServiceResult<ReservationMessageResponse>> CancelAsync(int id, int? currentUserId, bool isAdmin, CancellationToken ct = default)
     {
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        var target = await context.Reservations.AsNoTracking().Where(r => r.Id == id)
+            .Select(r => new { r.UserId, r.ScheduleSlotId }).SingleOrDefaultAsync(ct);
+        if (target is null) return ServiceError.NotFound("Reserva no encontrada.");
+        await context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Users\" WHERE \"Id\" = {target.UserId} FOR UPDATE", ct);
+        await context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"ScheduleSlots\" WHERE \"Id\" = {target.ScheduleSlotId} FOR UPDATE", ct);
         var reservation = await context.Reservations.Include(r => r.User).Include(r => r.ScheduleSlot).FirstOrDefaultAsync(r => r.Id == id, ct);
 
         if (reservation is null)
@@ -154,6 +163,7 @@ public sealed class ReservationService(AppDbContext context, IGymClock clock, IO
 
         reservation.Status = ReservationStatus.Cancelled;
         await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         return ServiceResult<ReservationMessageResponse>.Success(new ReservationMessageResponse("Reserva cancelada correctamente.", ReservationResponse.From(reservation)));
     }

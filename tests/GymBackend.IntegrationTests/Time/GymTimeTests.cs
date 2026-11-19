@@ -33,17 +33,17 @@ public sealed class GymTimeTests(GymApiFactory factory)
         Assert.Equal(new DateTime(2026, 11, 17, 23, 59, 0), validUntil.DateTime);
         Assert.Equal(TimeSpan.FromHours(-3), validUntil.Offset);
         var token = qr.GetProperty("token").GetString()!;
-        var entry = await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.OK);
-        var id = entry.GetProperty("attendance").GetProperty("id").GetInt32();
+        var entry = await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.OK);
+        var id = entry.GetProperty("visit").GetProperty("id").GetInt32();
         clock.Advance(TimeSpan.FromMinutes(1));
-        await Expect(await Api.Attendance(admin, "exit", token), HttpStatusCode.OK);
+        await Expect(await Api.Access(admin, "exit", token), HttpStatusCode.OK);
         await factory.WithDbAsync(async db =>
         {
-            var attendance = await db.Attendances.SingleAsync(a => a.Id == id, Ct);
+            var attendance = await db.Visits.SingleAsync(a => a.Id == id, Ct);
             Assert.Equal(new DateOnly(2026, 11, 17), attendance.Date);
-            Assert.Equal(instant.UtcDateTime, attendance.EntryTime);
-            Assert.Equal(clock.GetUtcNow().UtcDateTime, attendance.ExitTime);
-            Assert.Equal(DateTimeKind.Utc, attendance.ExitTime!.Value.Kind);
+            Assert.Equal(instant.UtcDateTime, attendance.EntryAt);
+            Assert.Equal(clock.GetUtcNow().UtcDateTime, attendance.ExitAt);
+            Assert.Equal(DateTimeKind.Utc, attendance.ExitAt!.Value.Kind);
         });
     }
 
@@ -66,12 +66,12 @@ public sealed class GymTimeTests(GymApiFactory factory)
         var local = TimeZoneInfo.ConvertTime(clock.GetUtcNow(), TimeZoneInfo.FindSystemTimeZoneById("America/Santiago"));
         await factory.InsertReservationAsync(user.UserId, slot.Id, DateOnly.FromDateTime(local.DateTime));
         var token = await Api.Qr(client);
-        await Expect(await Api.Attendance(admin, "entry", token), HttpStatusCode.BadRequest,
+        await Expect(await Api.Access(admin, "entry", token), HttpStatusCode.BadRequest,
             "El usuario no se encuentra registrado en el horario de ingreso.");
         using var acceptedHost = factory.WithClock(new FakeTimeProvider(
             DateTimeOffset.Parse(accepted, CultureInfo.InvariantCulture)));
         using var acceptedAdmin = acceptedHost.CreateClient();
         acceptedAdmin.DefaultRequestHeaders.Authorization = realAdmin.DefaultRequestHeaders.Authorization;
-        await Expect(await Api.Attendance(acceptedAdmin, "entry", token), HttpStatusCode.OK);
+        await Expect(await Api.Access(acceptedAdmin, "entry", token), HttpStatusCode.OK);
     }
 }

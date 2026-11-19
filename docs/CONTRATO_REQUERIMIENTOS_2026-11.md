@@ -32,7 +32,7 @@ Instantes en UTC (ISO 8601); fechas de sesión locales `YYYY-MM-DD` y horas `HH:
 - **Tokens de cuenta:** entidad `AccountToken { Id, UserId, Purpose (Activation|PasswordReset), TokenHash (SHA-256 de 32 bytes aleatorios en Base64Url), CreatedAt, ExpiresAt, UsedAt }`.
   - Vigencia configurable: `Accounts:ActivationHours` = 72 y `Accounts:ResetMinutes` = 60. Un solo uso.
   - **Nunca** se guarda ni se registra el token en claro.
-- **Enlaces:** `{Accounts:FrontendBaseUrl}/activar?token=…` y `/restablecer?token=…`.
+- **Enlaces:** `{Accounts:FrontendBaseUrl}/activar-cuenta?token=…` y `/restablecer-contrasena?token=…` (rutas del frontend `b7de73f`).
   - `FrontendBaseUrl` es una opción validada al arrancar (URL absoluta https, o http solo en Development). **Nunca** se deriva de `Host`.
 - **Correo:** `EmailOutbox { Id, To, Subject, Body (texto), CreatedAt, AttemptCount, NextAttemptAt, SentAt, LastError }` se escribe en la misma transacción que la operación.
   - Un `BackgroundService` lo despacha con reintentos exponenciales (máximo 5).
@@ -85,13 +85,31 @@ Instantes en UTC (ISO 8601); fechas de sesión locales `YYYY-MM-DD` y horas `HH:
     - Exclusión mutua global con `pg_advisory_xact_lock` para el último lugar: si el aforo está lleno → 409 «Se alcanzó el aforo máximo de la sala.».
     - Crea la `Visit`. En la primera entrada, la reserva pasa a `Asistió`.
     - Responde 200 `{ message, visit }`.
-  - **`POST /access/exit`** `{ token }` → cierra la visita abierta (sin visita abierta → 400). Responde 200 `{ message, visit }`.
+  - **`POST /access/exit`** `{ userId }` → cierra la visita abierta de esa persona (sin visita abierta → 400). La persona se elige en `GET /access/current`, así que **no depende del QR**,
+    que vence al terminar el bloque. Responde 200 `{ message, visit }`.
   - **`GET /access/current`** → `{ occupancy: { current, max }, people: [{ userId, fullName, rut, category, entryAt, sessionEndTime }] }`.
 - **`VisitResponse`:** `{ id, userId, fullName, rut, reservationId, groupBookingId, date, entryAt, exitAt, stayMinutes, documentType, entryOperator, exitOperator }`.
 - **Historial:**
   - `GET /visits?from=&to=&userId=&branchId=&category=` (solo Admin).
   - `GET /me/visits` (las propias).
-- **QR:** `GET /qr/my-code` se mantiene (token personal firmado del día). Añade `firstName, lastName, category, sportBranch` y `nextSession` (la próxima reserva de hoy o del grupo de su rama, o `null`).
+- **QR de acceso por bloque** (decisión del usuario, 2026-11-19): el QR **pertenece a una reserva** (o al cupo de un grupo de la rama del deportista) y **solo es válido durante ese bloque**.
+  Lo validan los roles `Admin` y `Recepcionista` (Usuario → 403). **Se elimina el QR diario** (`/qr/my-code` y su formato).
+  - **Formato del token v2:** `base64url(payload).base64url(HMAC-SHA256(Qr:SigningKey, payload))`.
+    - El payload es JSON `{ v: 2, k: "R"|"G", rid: reservationId | gid: groupBookingId, uid: userId, nbf: unix, exp: unix }`.
+    - Ventana: `nbf = inicio − 15 min` y `exp = fin`, ambos en instantes UTC calculados desde la hora de Santiago.
+    - Se verifica con una comparación en tiempo constante (`CryptographicOperations.FixedTimeEquals`).
+  - **Emisión:**
+    - `GET /me/reservations/{id}/qr` (solo el titular; reserva `Reservado`/`Asistió`; en otro caso 404).
+    - `GET /me/group-bookings/{id}/qr` (deportista habilitado de la rama del grupo, grupo `Activa`).
+    - Ambos responden `{ token, validFrom, validUntil, user: { firstName, lastName, fullName, rut, category, sportBranch }, session: { kind, reservationId?, groupBookingId?, date, startTime, endTime } }`.
+    - Se puede emitir antes de la ventana: el QR se muestra, pero solo **valida** dentro de ella.
+  - **Validación** (en `validate` y `entry`, siempre las dos):
+    - firma correcta;
+    - `nbf ≤ ahora < exp` según el reloj del servidor; fuera de ese rango → `canEnter = false` con «El código QR no está vigente para este bloque.»;
+    - la reserva o el grupo siguen activos y pertenecen a `uid`; el usuario está habilitado;
+    - en grupos, el usuario sigue en la rama del grupo y quedan cupos o ya usó uno.
+    - Un token de otra reserva, vencido o manipulado → rechazado (§17.16).
+  - **`validate`** responde la identidad mínima (nombre, apellido y RUT para comparar con el documento), la sesión y el aforo.
 
 ## 5. Inasistencias y alertas (F10)
 - **Job** (`BackgroundService`, cada `Alerts:NoShowIntervalMinutes` = 15): las reservas `Reservado` cuyo bloque terminó (fecha + fin, en hora de Santiago) y que no tienen ninguna visita pasan a `Inasistencia` y crean una `AttendanceAlert { Id, UserId, ReservationId (único), CreatedAt, AcknowledgedAt? }`.

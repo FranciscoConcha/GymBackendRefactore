@@ -39,6 +39,9 @@ public class AppDbContext : DbContext
 
     public DbSet<ScheduleSlot> ScheduleSlots => Set<ScheduleSlot>();
 
-    public DbSet<Attendance> Attendances => Set<Attendance>();
+    public DbSet<Visit> Visits => Set<Visit>();
+    public DbSet<AccessEvent> AccessEvents => Set<AccessEvent>();
+    public DbSet<GroupBooking> GroupBookings => Set<GroupBooking>();
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 }
 

@@ -26,7 +26,7 @@ public sealed class ReservationConcurrencyTests(GymApiFactory factory)
                     Assert.Equal(3, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
                     foreach (var response in responses.Where(r => r.StatusCode != HttpStatusCode.OK))
                     {
-                        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+                        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
                         Assert.Equal("No quedan cupos disponibles para este bloque.",
                             (await Api.Read(response)).GetProperty("message").GetString());
                     }

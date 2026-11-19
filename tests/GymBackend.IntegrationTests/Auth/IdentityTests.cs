@@ -66,7 +66,7 @@ public sealed class IdentityTests(GymApiFactory factory)
         var changed = await Expect(await admin.PatchAsJsonAsync($"/api/v1/auth/users/{receptionist.UserId}",
             new { role = Roles.Usuario, category = UserCategories.Externo }, JsonOptions, Ct), HttpStatusCode.OK);
         Assert.Equal(Roles.Usuario, changed.GetProperty("user").GetProperty("role").GetString());
-        using var entry = await Api.Attendance(staff, "entry", "invalid");
+        using var entry = await Api.Access(staff, "entry", "invalid");
         Assert.Equal(HttpStatusCode.Forbidden, entry.StatusCode);
         // Categories do not grant access to staff operations.
         using var users = await staff.GetAsync("/api/v1/auth/users", Ct);
@@ -243,9 +243,9 @@ public sealed class IdentityTests(GymApiFactory factory)
         var slot = await factory.CreateSlotAsync(DayOfWeek.Tuesday, new TimeOnly(10, 0), new TimeOnly(11, 0));
         await factory.InsertReservationAsync(user.UserId, slot.Id, new DateOnly(2026, 11, 17));
         var qr = await Api.Qr(timedUser);
-        var entry = await Expect(await Api.Attendance(timedStaff, "entry", qr), HttpStatusCode.OK);
-        Assert.Equal($"Test {user.Rut}", entry.GetProperty("attendance").GetProperty("userName").GetString());
-        await Expect(await Api.Attendance(timedStaff, "exit", qr), HttpStatusCode.OK);
+        var entry = await Expect(await Api.Access(timedStaff, "entry", qr), HttpStatusCode.OK);
+        Assert.Equal($"Test {user.Rut}", entry.GetProperty("visit").GetProperty("fullName").GetString());
+        await Expect(await Api.Access(timedStaff, "exit", qr), HttpStatusCode.OK);
         await Expect(await staff.PostAsync("/api/v1/auth/logout", null, Ct), HttpStatusCode.OK);
     }
 

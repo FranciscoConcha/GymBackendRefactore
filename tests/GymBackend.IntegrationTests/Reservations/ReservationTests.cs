@@ -73,7 +73,7 @@ public sealed class ReservationTests(GymApiFactory factory)
         using var three = third.Client;
         var reservation = await Reservation(one, slot.Id, date);
         await Reservation(two, slot.Id, date);
-        await Expect(await Reserve(three, slot.Id, date), HttpStatusCode.BadRequest, "No quedan cupos disponibles para este bloque.");
+        await Expect(await Reserve(three, slot.Id, date), HttpStatusCode.Conflict, "No quedan cupos disponibles para este bloque.");
         await Expect(await one.DeleteAsync($"/api/v1/reservations/{reservation.GetProperty("id").GetInt32()}", Ct), HttpStatusCode.OK);
         await Reservation(three, slot.Id, date);
     }
