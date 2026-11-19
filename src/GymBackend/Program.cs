@@ -34,6 +34,12 @@ builder.Services.AddScoped<GymBackend.Application.Qr.BlockQrService>();
 builder.Services.AddScoped<GymBackend.Application.Access.AccessService>();
 builder.Services.AddScoped<AccessAttemptFilter>();
 builder.Services.AddScoped<GymBackend.Application.Groups.GroupBookingService>();
+builder.Services.AddScoped<GymBackend.Application.Alerts.NoShowProcessor>();
+builder.Services.AddHostedService<GymBackend.Application.Alerts.NoShowService>();
+builder.Services.AddScoped<GymBackend.Application.Reporting.ReportQueries>();
+builder.Services.AddScoped<GymBackend.Application.Reporting.MetricsService>();
+builder.Services.AddScoped<GymBackend.Application.Excel.ExportService>();
+builder.Services.AddScoped<GymBackend.Application.Excel.UserImportService>();
 
 var app = builder.Build();
 app.UseGymObservability();

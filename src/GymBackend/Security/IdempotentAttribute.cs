@@ -34,7 +34,11 @@ public sealed class IdempotentAttribute(bool required) : Attribute, IAsyncResour
         string hash;
         try
         {
-            using var document = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct);
+            // Bodyless confirmation endpoints still have a stable, canonical request body.
+            using var document = http.Request.ContentLength == 0
+                || http.Request.ContentLength is null && !http.Request.Headers.ContainsKey("Transfer-Encoding")
+                ? JsonDocument.Parse("{}")
+                : await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct);
             hash = RequestHash(document.RootElement);
         }
         catch (JsonException)

@@ -43,5 +43,7 @@ public class AppDbContext : DbContext
     public DbSet<AccessEvent> AccessEvents => Set<AccessEvent>();
     public DbSet<GroupBooking> GroupBookings => Set<GroupBooking>();
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
+    public DbSet<AttendanceAlert> AttendanceAlerts => Set<AttendanceAlert>();
+    public DbSet<UserImport> UserImports => Set<UserImport>();
 }
 
