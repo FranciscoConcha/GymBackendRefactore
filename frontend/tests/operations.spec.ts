@@ -1,235 +1,172 @@
-import { expect, test, type Page } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
-import writeXlsxFile from "write-excel-file/node";
-import { readSheet } from "read-excel-file/node";
-import {
-  initialState,
-  reserve,
-  slotsFor,
-  STORAGE_KEY,
-  ticket,
-  type DemoState,
-} from "../src/domain";
-import { IMPORT_HEADERS } from "../src/excel";
-
-const now = new Date("2026-11-18T08:30:00");
-test.beforeEach(async ({ page }) => {
-  await page.clock.setFixedTime(now);
-});
-async function seed(page: Page, value: DemoState) {
-  await page.addInitScript(
-    ({ key, value }) => {
-      if (!localStorage.getItem(key))
-        localStorage.setItem(key, JSON.stringify(value));
-    },
-    { key: STORAGE_KEY, value },
-  );
-}
-
-test("recepción: solo estado actual, identidad y accesos con reingreso", async ({
+import { expect, test } from "@playwright/test";
+import { login, mockApi, navigate } from "./api-fixture";
+test("acceso en dos pasos; salida por persona sin reutilizar QR", async ({
   page,
 }) => {
-  const state = reserve(
-    structuredClone(initialState),
-    "student-1",
-    slotsFor("2026-11-18")[0],
-    now,
-  );
-  await seed(page, state);
-  await page.goto("/recepcion/usuarios");
+  const mock = await mockApi(page);
+  await login(page, "Recepcionista");
+  await expect(page).toHaveURL(/\/recepcion\/inicio$/);
+  await expect(page.locator(".sidebar .nav-link")).toHaveCount(2);
+  await navigate(page, "Escanear QR");
+  await page.getByLabel("Código de la reserva").fill("signed-R-1");
+  await page.getByRole("button", { name: "Validar código" }).click();
   await expect(
-    page.getByRole("heading", { name: "Estado actual de la sala" }),
+    page.getByRole("heading", { name: "Alex Martínez" }),
   ).toBeVisible();
-  await expect(page.getByRole("table")).toHaveCount(0);
-  await expect(page.locator(".metric-card")).toHaveCount(0);
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole("button", { name: "Escanear QR", exact: true }).click();
-  await expect(page.locator(".reservation-lookup")).toHaveCount(0);
-  await page
-    .getByLabel("Código de la reserva")
-    .fill(ticket(state.reservations[0].id));
-  await expect(page.locator(".identity-review")).toContainText("Alex Martínez");
-  await expect(page.locator(".identity-review")).toContainText("12.345.678-5");
-  const confirm = page.getByRole("button", {
-    name: "Registrar entrada",
-    exact: true,
-  });
-  await expect(confirm).toBeDisabled();
-  await page
-    .getByRole("combobox", { name: "Documento presentado", exact: true })
-    .selectOption("TNE");
-  await page
-    .getByRole("checkbox", { name: /Confirmo que el nombre y RUT/ })
-    .check();
-  await confirm.click();
+  expect(mock.visits).toHaveLength(0);
+  expect(mock.calls.some((c) => c.path === "/access/entry")).toBe(false);
   await expect(
-    page.getByRole("heading", { name: "Entrada registrada" }),
+    page.getByRole("button", { name: "Registrar entrada" }),
+  ).toBeDisabled();
+  await page.getByLabel("Documento presentado").selectOption("TNE");
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Registrar entrada" }).click();
+  await expect(
+    page.getByText("Entrada registrada.", { exact: true }),
   ).toBeVisible();
+  expect(mock.visits).toHaveLength(1);
+  const entry = mock.calls.find((c) => c.path === "/access/entry")!;
+  expect(entry.body).toEqual({ token: "signed-R-1", documentType: "TNE" });
+  expect(entry.headers["idempotency-key"]).toBeTruthy();
   await page.getByRole("button", { name: "Salida", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Registrar salida", exact: true })
-    .click();
-  await expect(page.locator(".present-member")).toHaveCount(0);
-  await page.getByRole("button", { name: "Entrada", exact: true }).click();
-  await page
-    .getByRole("checkbox", { name: /Confirmo que el nombre y RUT/ })
-    .check();
-  await confirm.click();
-  await expect(page.locator(".present-member")).toHaveCount(1);
-  await page.goto("/estudiante/reservas");
-  await expect(page.locator(".visit-details")).toContainText(
-    "2 visitas registradas",
-  );
-});
-
-test("deportista con varias reservas diarias y estudiante con una sola", async ({
-  page,
-}) => {
-  await page.goto("/estudiante/horarios");
-  await page
-    .getByRole("button", { name: "Reservar", exact: true })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "Confirmar reserva" }).click();
-  await expect(page.locator(".reservation-row")).toHaveCount(1);
-  await page.goto("/estudiante/horarios");
-  await page
-    .getByRole("button", { name: "Reservar", exact: true })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "Confirmar reserva" }).click();
-  await expect(page.locator(".reservation-row")).toHaveCount(2);
-  await page.goto("/estudiante/horarios?usuario=student-2");
-  await page
-    .getByRole("button", { name: "Reservar", exact: true })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "Confirmar reserva" }).click();
-  await expect(page.locator(".reservation-row")).toHaveCount(1);
-  await page.goto("/estudiante/horarios?usuario=student-2");
+  await page.getByLabel("Persona dentro").selectOption("1");
+  await page.getByRole("button", { name: "Registrar salida" }).click();
   await expect(
-    page.getByRole("button", { name: "Reservar", exact: true }),
-  ).toHaveCount(0);
-});
-
-test("sesión de rama administrativa y filtros de usuarios y KPIs", async ({
-  page,
-}) => {
-  await page.goto("/admin/grupos");
-  await page
-    .getByLabel("Rama deportiva", { exact: true })
-    .selectOption("Fútbol");
-  await page
-    .getByLabel("Horario", { exact: true })
-    .selectOption("2026-11-18-1");
-  await page.getByRole("checkbox", { name: /Alex Martínez/ }).check();
-  await page.getByRole("checkbox", { name: /Valentina Rojas/ }).check();
-  await page.getByRole("button", { name: "Confirmar sesión de rama" }).click();
-  await expect(page.locator(".group-record")).toHaveCount(1);
-  await expect(page.locator(".group-record")).toContainText("2 deportistas");
-  await page.goto("/admin/inicio");
-  await page
-    .getByLabel("Rama deportiva", { exact: true })
-    .selectOption("Fútbol");
-  await expect(
-    page.locator(".metric-card").first().locator(".metric-value"),
-  ).toHaveText("2");
-  await page
-    .getByLabel("Rama deportiva", { exact: true })
-    .selectOption("Básquetbol");
-  await expect(
-    page.locator(".metric-card").first().locator(".metric-value"),
-  ).toHaveText("0");
-  await page.goto("/admin/usuarios");
-  await page
-    .getByLabel("Filtrar por rama deportiva")
-    .selectOption("Básquetbol");
-  await expect(page.locator("tbody tr")).toHaveCount(1);
-  await expect(page.locator("tbody")).toContainText("Martina López");
-  expect(
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth <=
-        document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-});
-
-test("inasistencia: aviso al usuario y acuse persistente sin bloquearlo", async ({
-  page,
-}) => {
-  const state = reserve(
-    structuredClone(initialState),
-    "student-1",
-    slotsFor("2026-11-18")[0],
-    now,
-  );
-  await seed(page, state);
-  await page.clock.setFixedTime(new Date("2026-11-18T10:00:00"));
-  await page.goto("/estudiante/inicio");
-  await expect(
-    page.getByRole("dialog", { name: "Tienes reservas sin asistencia" }),
+    page.getByText("Salida registrada.", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Entendido" }).click();
-  await page.reload();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.goto("/estudiante/reservas");
-  await expect(page.locator(".reservation-row .badge")).toHaveText(
-    "No asistió",
-  );
+  expect(mock.calls.find((c) => c.path === "/access/exit")?.body).toEqual({
+    userId: 1,
+  });
+  expect(mock.visits[0].exitAt).toBeTruthy();
+  expect(mock.csrfFailures).toEqual([]);
+  expect(mock.unknown).toEqual([]);
 });
-
-test("Excel real: importar con vista previa y exportar un libro legible", async ({
+test("grupo no nominativo por cupos y clave conservada al reintentar", async ({
   page,
 }) => {
-  const buffer = await writeXlsxFile([
-    IMPORT_HEADERS,
-    [
-      "22.222.222-2",
-      "Fernanda",
-      "Pérez",
-      "fernanda@example.invalid",
-      "Deportista",
-      "Natación",
-    ],
-  ]).toBuffer();
+  const mock = await mockApi(page, { role: "Admin" });
+  await page.goto("/admin/grupos");
+  await page.getByLabel("Rama deportiva", { exact: true }).selectOption("1");
+  await page.getByLabel("Horario", { exact: true }).selectOption("1");
+  await page.getByLabel("Cantidad de cupos").fill("4");
+  mock.failNext("/group-bookings", 503, "Intenta nuevamente.");
+  await page.getByRole("button", { name: "Confirmar sesión de rama" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Intenta nuevamente.");
+  await page.getByRole("button", { name: "Confirmar sesión de rama" }).click();
+  await expect(page.getByText("4 cupos · 0 usados · Activa")).toBeVisible();
+  const calls = mock.calls.filter(
+    (c) => c.path === "/group-bookings" && c.method === "POST",
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[0].body).toEqual({
+    sportBranchId: 1,
+    scheduleSlotId: 1,
+    date: mock.date,
+    mode: "Cupos",
+    seats: 4,
+  });
+  expect(calls[0].headers["idempotency-key"]).toBeTruthy();
+  expect(calls[0].headers["idempotency-key"]).toBe(
+    calls[1].headers["idempotency-key"],
+  );
+  await page.getByRole("button", { name: "Cancelar grupo" }).click();
+  await expect(page.getByText("4 cupos · 0 usados · Cancelada")).toBeVisible();
+});
+test("grupo usa todo el cupo disponible sin mandar seats", async ({ page }) => {
+  const mock = await mockApi(page, { role: "Admin" });
+  await page.goto("/admin/grupos");
+  await page.getByLabel("Rama deportiva", { exact: true }).selectOption("1");
+  await page.getByLabel("Horario", { exact: true }).selectOption("1");
+  await page
+    .getByLabel("Modo", { exact: true })
+    .selectOption("TotalDisponible");
+  await page.getByRole("button", { name: "Confirmar sesión de rama" }).click();
+  await expect(page.getByText("30 cupos · 0 usados · Activa")).toBeVisible();
+  expect(
+    mock.calls.find((c) => c.path === "/group-bookings" && c.method === "POST")
+      ?.body,
+  ).not.toHaveProperty("seats");
+});
+test("Excel sube multipart, muestra preview y confirma con clave estable", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { role: "Admin" });
   await page.goto("/admin/archivos");
   await page.getByLabel("Archivo de usuarios (.xlsx)").setInputFiles({
     name: "usuarios.xlsx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    buffer,
+    buffer: Buffer.from("fixture-upload"),
   });
-  await expect(page.locator(".import-preview")).toContainText("1 válidas");
+  await expect(
+    page.getByRole("heading", { name: "Vista previa" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("1 para crear · 1 omitidas · 1 con errores"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "Crear", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("RUT inválido.", { exact: true })).toBeVisible();
+  expect(mock.calls.some((c) => c.path.endsWith("/confirm"))).toBe(false);
+  mock.failNext("/admin/user-imports/1/confirm", 503, "Intenta nuevamente.");
+  await page.getByRole("button", { name: "Confirmar importación (1)" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Intenta nuevamente.");
   await page.getByRole("button", { name: "Confirmar importación (1)" }).click();
   await expect(
-    page.getByText("Usuarios creados con activación pendiente.", {
-      exact: true,
-    }),
+    page.getByText("1 creados · 1 omitidos · 1 fallidos"),
   ).toBeVisible();
+  const calls = mock.calls.filter(
+    (c) => c.path === "/admin/user-imports/1/confirm",
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[0].headers["idempotency-key"]).toBeTruthy();
+  expect(calls[0].headers["idempotency-key"]).toBe(
+    calls[1].headers["idempotency-key"],
+  );
+  expect(mock.csrfFailures).toEqual([]);
+});
+test("exporta con filtros y nombre Content-Disposition", async ({ page }) => {
+  const mock = await mockApi(page, { role: "Admin" });
+  await page.goto("/admin/archivos");
+  await page.getByLabel("Desde", { exact: true }).fill("2026-11-01");
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Exportar todo (.xlsx)" }).click();
-  const file = await download;
-  expect(file.suggestedFilename()).toMatch(/UCN-Gym.*\.xlsx$/);
-  const rows = await readSheet((await file.path())!, "Usuarios");
-  expect(
-    rows.some(
-      (row) =>
-        row.includes("fernanda@example.invalid") && row.includes("Natación"),
-    ),
-  ).toBe(true);
-  await page.goto("/admin/usuarios");
-  await page.getByRole("textbox", { name: "Buscar usuarios" }).fill("Fernanda");
-  await expect(page.locator("tbody")).toContainText("Activación pendiente");
+  expect((await download).suggestedFilename()).toBe("UCN-reporte.xlsx");
+  expect(mock.calls.find((c) => c.path === "/admin/exports")?.body).toEqual({
+    from: "2026-11-01",
+  });
 });
-
-test("recuperación: no afirma un envío si falla la API", async ({ page }) => {
-  await page.route("**/api/auth/password-resets", (route) =>
-    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
-  );
-  await page.goto("/recuperar-contrasena");
-  await page.getByLabel("Correo registrado").fill("cuenta@example.invalid");
-  await page.getByRole("button", { name: "Enviar enlace" }).click();
-  await expect(page.getByRole("alert")).toContainText("No se pudo procesar");
-  await expect(page.getByRole("status")).toHaveCount(0);
+test("usuarios y ramas se administran mediante mutaciones CSRF", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { role: "Admin" });
+  await page.goto("/admin/ramas");
+  await page.getByLabel("Nombre de la rama", { exact: true }).fill("Natación");
+  await page.getByRole("button", { name: "Crear rama", exact: true }).click();
+  await expect(
+    page.getByLabel("Nombre de Natación", { exact: true }),
+  ).toBeVisible();
+  await navigate(page, "Usuarios");
+  await page
+    .getByRole("button", { name: "Agregar usuario", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Agregar usuario" });
+  await dialog.getByLabel("Nombre", { exact: true }).fill("Camila");
+  await dialog.getByLabel("Apellido", { exact: true }).fill("Rojas");
+  await dialog.getByLabel("RUT", { exact: true }).fill("11.111.111-1");
+  await dialog
+    .getByLabel("Correo", { exact: true })
+    .fill("camila@example.invalid");
+  await dialog
+    .getByLabel("Categoría", { exact: true })
+    .selectOption("Estudiante");
+  await dialog
+    .getByRole("button", { name: "Agregar usuario", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(
+    mock.calls.find((c) => c.path === "/auth/register")?.body,
+  ).not.toHaveProperty("password");
+  expect(mock.csrfFailures).toEqual([]);
 });

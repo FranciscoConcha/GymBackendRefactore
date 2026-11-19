@@ -1,61 +1,38 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
-  Activity,
-  ArrowDownLeft,
-  ArrowRight,
-  ArrowUpRight,
   CalendarDays,
-  CheckCircle2,
-  Clock3,
   ScanLine,
   Users,
+  Clock3,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
-import { localDate, shortDate, type DemoState } from "../domain";
-import { dashboardMetrics, ROOM_CAPACITY, type Period } from "../metrics";
-
-const ActivityChart = lazy(() =>
-  import("../components/admin-charts").then((module) => ({
-    default: module.ActivityChart,
-  })),
-);
+import { api, type ReportFilters, type Occupancy } from "../api";
+import { localDate } from "../domain";
+import { LoadStatus, useApiData } from "../remote";
+import { ReportFilterFields } from "./Records";
+import { attendanceRate } from "../metrics";
 const OccupancyChart = lazy(() =>
-  import("../components/admin-charts").then((module) => ({
-    default: module.OccupancyChart,
+  import("../components/admin-charts").then((m) => ({
+    default: m.OccupancyChart,
   })),
 );
 const DemandChart = lazy(() =>
-  import("../components/admin-charts").then((module) => ({
-    default: module.DemandChart,
+  import("../components/admin-charts").then((m) => ({
+    default: m.DemandChart,
   })),
 );
-
-function ChartLoading({ className }: { className: string }) {
-  return (
-    <div className={`chart-loading ${className}`} role="status">
-      Cargando gráfico…
-    </div>
-  );
-}
-
-interface Props {
-  state: DemoState;
-  onAccess: () => void;
-  onReservations: () => void;
-  onUsers: () => void;
-}
-
 function Metric({
   label,
   value,
   detail,
-  icon: Icon,
+  icon: Icon = CalendarDays,
   accent = false,
 }: {
   label: string;
-  value: string;
-  detail: string;
-  icon: LucideIcon;
+  value: string | number;
+  detail?: string;
+  icon?: LucideIcon;
   accent?: boolean;
 }) {
   return (
@@ -71,306 +48,189 @@ function Metric({
     </article>
   );
 }
-
 export default function AdminDashboard({
-  state,
   onAccess,
   onReservations,
   onUsers,
-}: Props) {
-  const [period, setPeriod] = useState<Period>(7);
-  const [branch, setBranch] = useState("");
-  const branches = [
-    ...new Set(
-      state.members.flatMap((member) => (member.branch ? [member.branch] : [])),
-    ),
-  ].sort();
-  const metrics = dashboardMetrics(state, period, new Date(), branch);
-  const events = state.reservations
-    .filter(
-      (reservation) =>
-        !branch ||
-        (reservation.branch ??
-          state.members.find((member) => member.id === reservation.memberId)
-            ?.branch) === branch,
-    )
-    .flatMap((r) => {
-      const name =
-        state.members.find((m) => m.id === r.memberId)?.name ?? "Usuario";
-      if (r.visits?.length)
-        return r.visits.flatMap((visit) => [
-          {
-            id: `${visit.id}-entry`,
-            type: "Entrada",
-            time: visit.entryAt,
-            name,
-          },
-          ...(visit.exitAt
-            ? [
-                {
-                  id: `${visit.id}-exit`,
-                  type: "Salida",
-                  time: visit.exitAt,
-                  name,
-                },
-              ]
-            : []),
-        ]);
-      return [
-        ...(r.entry
-          ? [{ id: `${r.id}-entry`, type: "Entrada", time: r.entry, name }]
-          : []),
-        ...(r.exit
-          ? [{ id: `${r.id}-exit`, type: "Salida", time: r.exit, name }]
-          : []),
-      ];
-    })
-    .filter(
-      (event) =>
-        Number.isFinite(Date.parse(event.time)) &&
-        metrics.days.includes(localDate(new Date(event.time))),
-    )
-    .sort((a, b) => Date.parse(b.time) - Date.parse(a.time))
-    .slice(0, 5);
-  const periodLabel = period === 1 ? "Hoy" : `Últimos ${period} días`;
-
+}: {
+  onAccess: () => void;
+  onReservations: () => void;
+  onUsers: () => void;
+}) {
+  const [filters, setFilters] = useState<ReportFilters>({});
+  const [revision, setRevision] = useState(0);
+  const {
+    data: m,
+    error,
+    loading,
+  } = useApiData(() => api.metrics(filters), [filters, revision]);
+  const [lastOccupancy, setLastOccupancy] = useState<Occupancy>();
+  useEffect(() => {
+    if (m) setLastOccupancy(m.occupancy);
+  }, [m]);
+  function period(days: number) {
+    const now = new Date();
+    const to = localDate(now);
+    const fromDate = new Date(`${to}T12:00:00Z`);
+    fromDate.setUTCDate(fromDate.getUTCDate() - days + 1);
+    setFilters({ ...filters, from: localDate(fromDate), to });
+  }
   return (
     <div className="admin-dashboard">
       <div className="dashboard-controls">
-        <div className="range-caption">
-          <CalendarDays size={17} aria-hidden="true" />
-          <span>{periodLabel}</span>
-          <span className="range-dates">
-            {shortDate(metrics.days[0], { day: "numeric", month: "short" })}
-            {period > 1 &&
-              ` – ${shortDate(metrics.days.at(-1)!, { day: "numeric", month: "short" })}`}
-          </span>
-        </div>
-        <label className="dashboard-branch">
-          Rama deportiva
-          <select
-            aria-label="Rama deportiva"
-            value={branch}
-            onChange={(event) => setBranch(event.target.value)}
-          >
-            <option value="">Todas las ramas</option>
-            {branches.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </label>
+        <ReportFilterFields value={filters} onChange={setFilters} />
         <div className="period-control" aria-label="Período del panel">
-          {([1, 7, 30] as Period[]).map((value) => (
-            <button
-              key={value}
-              aria-pressed={period === value}
-              onClick={() => setPeriod(value)}
-            >
-              {value === 1 ? "Hoy" : `${value} días`}
+          {[1, 7, 30].map((d) => (
+            <button key={d} onClick={() => period(d)}>
+              {d === 1 ? "Hoy" : `${d} días`}
             </button>
           ))}
         </div>
+        <button
+          className="text-button"
+          onClick={() => setRevision((v) => v + 1)}
+        >
+          Actualizar resumen
+        </button>
       </div>
-      <div className="metrics-grid">
-        <Metric
-          label="Reservas"
-          value={String(metrics.records.length)}
-          detail={`${metrics.pending} pendientes · ${metrics.cancelled.length} canceladas`}
-          icon={CalendarDays}
-        />
-        <Metric
-          label="En sala · global"
-          value={`${metrics.present.length}`}
-          detail={`Capacidad: ${ROOM_CAPACITY} personas`}
-          icon={Users}
-          accent
-        />
-        <Metric
-          label="Asistencia registrada"
-          value={
-            metrics.attendanceRate === null ? "—" : `${metrics.attendanceRate}%`
-          }
-          detail={`${metrics.arrivals.length} ingresos · ${metrics.valid.length} reservas vigentes`}
-          icon={CheckCircle2}
-        />
-        <Metric
-          label="Usuarios habilitados"
-          value={String(metrics.enabled)}
-          detail={`${metrics.memberCount} usuarios registrados · Estado actual`}
-          icon={Activity}
-        />
+      <LoadStatus error={error} loading={loading} />
+      {!m && lastOccupancy && (
+        <div className="metrics-grid">
+          <Metric
+            label="Aforo actual"
+            value={`${lastOccupancy.current} / ${lastOccupancy.max}`}
+            detail="Última consulta global de la sala"
+          />
+        </div>
+      )}
+      {m && (
+        <>
+          <p>
+            {m.period.from} – {m.period.to}
+          </p>
+          <div className="metrics-grid">
+            <Metric
+              label="Reservas"
+              value={m.reservations.total}
+              detail={`${m.reservations.attended} asistidas · ${m.reservations.cancelled} canceladas`}
+            />
+            <Metric
+              label="Aforo actual"
+              icon={Users}
+              accent
+              value={`${m.occupancy.current} / ${m.occupancy.max}`}
+              detail="Ocupación global de la sala"
+            />
+            <Metric label="Inasistencias" value={m.reservations.noShow} />
+            <Metric
+              label="Visitas"
+              icon={Activity}
+              value={m.visits}
+              detail={`${m.uniqueVisitors} personas distintas`}
+            />
+            <Metric
+              label="Permanencia media"
+              icon={Clock3}
+              value={
+                m.averageStayMinutes === null
+                  ? "Sin datos"
+                  : `${Math.round(m.averageStayMinutes)} min`
+              }
+            />
+            <Metric
+              label="Asistencia"
+              icon={Activity}
+              value={
+                attendanceRate(m) === null
+                  ? "Sin datos"
+                  : `${attendanceRate(m)}%`
+              }
+            />
+            <Metric
+              label="Sesiones de rama"
+              icon={Users}
+              value={m.groupBookings.count}
+              detail={`${m.groupBookings.usedSeats} de ${m.groupBookings.seats} cupos usados`}
+            />
+          </div>
+          <div className="admin-main-grid">
+            <section className="card">
+              <h2>Aforo actual</h2>
+              <Suspense fallback={<p role="status">Cargando gráfico…</p>}>
+                <OccupancyChart
+                  present={m.occupancy.current}
+                  capacity={m.occupancy.max}
+                />
+              </Suspense>
+            </section>
+            <section className="card">
+              <h2>Demanda por horario</h2>
+              <Suspense fallback={<p role="status">Cargando gráfico…</p>}>
+                <DemandChart
+                  demand={m.demandByHour.map((d) => ({
+                    start: d.startTime,
+                    count: d.reservations,
+                  }))}
+                />
+              </Suspense>
+            </section>
+          </div>
+          <div className="admin-lower-grid">
+            <section className="card">
+              <h2>Demanda por rama</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rama</th>
+                    <th>Reservas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {m.demandByBranch.map((d) => (
+                    <tr key={d.branchId}>
+                      <td>{d.name}</td>
+                      <td>{d.reservations}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+            <section className="card">
+              <h2>Usuarios habilitados por categoría</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Categoría</th>
+                    <th>Usuarios</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {m.enabledUsersByCategory.map((c) => (
+                    <tr key={c.category}>
+                      <td>{c.category}</td>
+                      <td>{c.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          </div>
+        </>
+      )}
+      <div className="quick-stats">
+        <button className="card" onClick={onAccess}>
+          <ScanLine />
+          Control de acceso
+        </button>
+        <button className="card" onClick={onReservations}>
+          <CalendarDays />
+          Reservas
+        </button>
+        <button className="card" onClick={onUsers}>
+          <Users />
+          Usuarios
+        </button>
       </div>
-      <div className="branch-summary">
-        <span>
-          <strong>{metrics.noShows}</strong> inasistencias
-        </span>
-        <span>
-          <strong>{metrics.groupParticipants}</strong> reservas de rama
-        </span>
-        <span>
-          <strong>{metrics.visitCount}</strong> visitas en el período
-        </span>
-      </div>
-      <div className="admin-main-grid">
-        <section className="panel reservation-chart">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">RESERVAS POR FECHA DE SESIÓN</span>
-              <h2>Actividad de la sala</h2>
-            </div>
-            <button className="text-button" onClick={onReservations}>
-              Ver reservas
-              <ArrowUpRight size={16} />
-            </button>
-          </div>
-          <Suspense fallback={<ChartLoading className="activity-echart" />}>
-            <ActivityChart key={period} days={metrics.daily} />
-          </Suspense>
-          <div className="chart-summary">
-            <span>
-              <strong>{metrics.records.length}</strong> reservas en el período
-            </span>
-            <span>
-              <strong>
-                {metrics.cancellationRate === null
-                  ? "—"
-                  : `${metrics.cancellationRate}%`}
-              </strong>{" "}
-              de cancelación
-            </span>
-          </div>
-        </section>
-        <section className="panel room-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">CONTROL DE ACCESO</span>
-              <h2>Sala de pesas</h2>
-            </div>
-            <span className="live-label">
-              <span />
-              Ahora
-            </span>
-          </div>
-          <div className="room-visual">
-            <Suspense fallback={<ChartLoading className="occupancy-echart" />}>
-              <OccupancyChart
-                present={metrics.present.length}
-                capacity={ROOM_CAPACITY}
-              />
-            </Suspense>
-          </div>
-          <div className="room-capacity">
-            <span>Capacidad</span>
-            <strong>{ROOM_CAPACITY} personas</strong>
-          </div>
-          <button className="button" onClick={onAccess}>
-            <ScanLine size={18} />
-            Abrir control de acceso
-            <ArrowRight size={17} />
-          </button>
-        </section>
-      </div>
-      <div className="admin-lower-grid">
-        <section className="panel demand-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">DISTRIBUCIÓN DEL PERÍODO</span>
-              <h2>Horarios más solicitados</h2>
-            </div>
-            <Clock3 size={19} aria-hidden="true" />
-          </div>
-          {metrics.demand.length ? (
-            <Suspense fallback={<ChartLoading className="demand-echart" />}>
-              <DemandChart demand={metrics.demand} />
-            </Suspense>
-          ) : (
-            <div className="panel-empty">
-              <Clock3 size={28} />
-              <h3>Aún no hay demanda registrada</h3>
-              <p>
-                Los horarios aparecerán cuando haya reservas en este período.
-              </p>
-            </div>
-          )}
-        </section>
-        <section className="panel movements-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">ÚLTIMOS MOVIMIENTOS</span>
-              <h2>Entradas y salidas</h2>
-            </div>
-            <button
-              className="text-button"
-              onClick={onAccess}
-              aria-label="Abrir entradas y salidas"
-            >
-              <ArrowUpRight size={20} />
-            </button>
-          </div>
-          {events.length ? (
-            <div className="movement-list">
-              {events.map((event) => (
-                <div className="movement" key={event.id}>
-                  <span
-                    className={`movement-icon ${event.type === "Salida" ? "exit" : ""}`}
-                  >
-                    {event.type === "Entrada" ? (
-                      <ArrowDownLeft size={18} />
-                    ) : (
-                      <ArrowUpRight size={18} />
-                    )}
-                  </span>
-                  <div>
-                    <strong>{event.name}</strong>
-                    <span>
-                      {event.type} ·{" "}
-                      {new Intl.DateTimeFormat("es-CL", {
-                        day: "numeric",
-                        month: "short",
-                      }).format(new Date(event.time))}
-                    </span>
-                  </div>
-                  <time dateTime={event.time}>
-                    {new Date(event.time).toLocaleTimeString("es-CL", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </time>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="panel-empty">
-              <ScanLine size={28} />
-              <h3>Sin movimientos recientes</h3>
-              <p>Las entradas y salidas se registrarán aquí.</p>
-            </div>
-          )}
-          <div className="panel-bottom">
-            <span>
-              {metrics.averageMinutes === null
-                ? "Sin visitas completadas en el período"
-                : `${metrics.averageMinutes} min de permanencia media en el período`}
-            </span>
-          </div>
-        </section>
-      </div>
-      <button className="admin-users-link" onClick={onUsers}>
-        <span className="admin-users-icon">
-          <Users size={20} />
-        </span>
-        <span>
-          <strong>Comunidad UCN</strong>
-          <small>
-            {metrics.enabled} habilitados de {metrics.memberCount} usuarios
-            {branch ? ` · ${branch}` : ""}
-          </small>
-        </span>
-        <span>
-          Gestionar usuarios
-          <ArrowRight size={17} />
-        </span>
-      </button>
     </div>
   );
 }

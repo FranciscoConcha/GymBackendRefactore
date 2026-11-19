@@ -60,10 +60,10 @@ it("notifica 401 global, exceptúa comprobación y login, y permite desuscribir"
       ApiError,
     );
     expect(handler).not.toHaveBeenCalled();
-    await expect(api.qr()).rejects.toMatchObject({ status: 401 });
+    await expect(api.qr(1)).rejects.toMatchObject({ status: 401 });
     expect(handler).toHaveBeenCalledTimes(1);
     unsubscribe();
-    await expect(api.qr()).rejects.toBeInstanceOf(ApiError);
+    await expect(api.qr(1)).rejects.toBeInstanceOf(ApiError);
     expect(handler).toHaveBeenCalledTimes(1);
   } finally {
     unsubscribe();

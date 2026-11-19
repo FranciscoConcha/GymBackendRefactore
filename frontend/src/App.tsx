@@ -8,7 +8,6 @@ import {
 } from "react";
 import {
   ArrowRight,
-  ArrowUpRight,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -25,55 +24,53 @@ import {
   QrCode,
   ScanLine,
   Search,
-  ShieldCheck,
   Users,
-  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
 import { useLocation, useNavigate } from "react-router-dom";
 import AdminDashboard from "./pages/AdminDashboard";
 import StudentDashboard from "./pages/StudentDashboard";
 import ReceptionDashboard from "./pages/ReceptionDashboard";
 import GroupBooking from "./pages/GroupBooking";
 import ExcelPanel from "./pages/ExcelPanel";
-import AccountPage from "./pages/AccountPage";
 import AccessPanel from "./pages/AccessPanel";
 import { Badge, Button } from "./components/ui";
 import {
-  access,
-  cancel,
-  DEMO_MEMBER,
   CATEGORIES,
-  categoryPriority,
   formatRut,
   isValidRut,
-  normalizeRut,
-  reconcileAttendance,
-  reserveGroup,
   getDays,
-  loadDemo,
   remaining,
-  reserve,
-  validateReservation,
   shortDate,
-  slotsFor,
-  slotEnd,
-  STORAGE_KEY,
-  ticket,
-  type DemoState,
+  hasStarted,
+  slotFrom,
+  memberFrom,
+  reservationFrom,
+  emptyState,
+  type ViewState,
   type Member,
   type Reservation,
   type Role,
   type Slot,
 } from "./domain";
+import { api, type UserResponse } from "./api";
+import Session from "./Session";
+import { LoadStatus, useApiData } from "./remote";
+import BlockQr from "./pages/BlockQr";
+import { BranchesPanel, HistoryPanel, AlertsPanel } from "./pages/Records";
+
+export default function App() {
+  return <Session>{(user) => <Workspace key={user.id} user={user} />}</Session>;
+}
 
 const studentNav: [string, string, LucideIcon][] = [
   ["inicio", "Inicio", LayoutDashboard],
   ["horarios", "Reservar", CalendarDays],
   ["reservas", "Mis reservas", History],
   ["qr", "Mi código QR", QrCode],
+  ["visitas", "Mis visitas", History],
+  ["grupos", "Grupos de mi rama", Users],
 ];
 const adminNav: [string, string, LucideIcon][] = [
   ["inicio", "Resumen", LayoutDashboard],
@@ -82,6 +79,9 @@ const adminNav: [string, string, LucideIcon][] = [
   ["reservas", "Reservas", CalendarDays],
   ["grupos", "Sesiones por rama", Users],
   ["archivos", "Excel", FileSpreadsheet],
+  ["ramas", "Ramas", Users],
+  ["alertas", "Inasistencias", History],
+  ["visitas", "Visitas", History],
 ];
 const receptionNav: [string, string, LucideIcon][] = [
   ["inicio", "Estado actual", Users],
@@ -94,12 +94,10 @@ const rolePath = (role: Role | null) =>
       ? "recepcion"
       : "estudiante";
 const statusClass: Record<string, string> = {
-  Reservada: "blue",
-  "En sala": "green",
-  "Fuera de sala": "blue",
-  Completada: "neutral",
-  Cancelada: "red",
-  "No asistió": "gold",
+  Reservado: "blue",
+  Asistió: "green",
+  Cancelado: "red",
+  Inasistencia: "gold",
 };
 
 function Brand({ inverse = false }: { inverse?: boolean }) {
@@ -152,7 +150,10 @@ function Modal({
       ref={ref}
       className="modal"
       aria-labelledby="modal-title"
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
     >
       <div className="modal-heading">
         <h2 id="modal-title">{title}</h2>
@@ -179,19 +180,43 @@ function SlotDetails({ slot }: { slot: Slot }) {
   );
 }
 
-export default function App() {
+function Workspace({ user }: { user: UserResponse }) {
   const location = useLocation();
   const navigate = useNavigate();
   const segments = location.pathname.split("/").filter(Boolean);
-  const role: Role | null =
-    segments[0] === "admin"
+  const role: Role =
+    user.role === "Admin"
       ? "admin"
-      : segments[0] === "estudiante"
-        ? "student"
-        : segments[0] === "recepcion"
-          ? "reception"
-          : null;
-  const [state, setState] = useState(loadDemo);
+      : user.role === "Recepcionista"
+        ? "reception"
+        : "student";
+  const [state, setState] = useState<ViewState>(emptyState);
+  const [revision, setRevision] = useState(0);
+  const refresh = () => setRevision((value) => value + 1);
+  const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const reserveKey = useRef<{ body: string; key: string } | null>(null);
+  const remote = useApiData(async () => {
+    const [branches, members, reservations, alerts] = await Promise.all([
+      role === "admin" ? api.branches() : Promise.resolve([]),
+      role === "admin" ? api.users() : Promise.resolve([user]),
+      role === "reception" ? Promise.resolve([]) : api.reservations(user),
+      role === "student" ? api.alerts() : Promise.resolve([]),
+    ]);
+    return {
+      members: members.map(memberFrom),
+      reservations: reservations.map((r) => reservationFrom(r, branches)),
+      alerts,
+      branches,
+    };
+  }, [user, revision, location.pathname]);
+  useEffect(() => {
+    if (remote.data) setState(remote.data);
+  }, [remote.data]);
+  useEffect(() => {
+    if (segments[0] !== rolePath(role))
+      navigate(`/${rolePath(role)}/inicio`, { replace: true });
+  }, [role, location.pathname]);
   const page = segments[1] || "inicio";
   const [menu, setMenu] = useState(false);
   const [mobile, setMobile] = useState(
@@ -205,24 +230,17 @@ export default function App() {
   const [toCancel, setToCancel] = useState<Reservation | null>(null);
   const [showMember, setShowMember] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
-  const [loginMemberId, setLoginMemberId] = useState(
-    () =>
-      state.members.find((value) => value.category === "Deportista")?.id ??
-      DEMO_MEMBER,
-  );
   const [scheduleDate, setScheduleDate] = useState(() => getDays()[0]);
   const heading = useRef<HTMLHeadingElement>(null);
-  const requestedMemberId =
-    new URLSearchParams(location.search).get("usuario") ?? DEMO_MEMBER;
-  const member =
-    state.members.find((m) => m.id === requestedMemberId) ??
-    state.members.find((m) => m.id === DEMO_MEMBER)!;
+  const member = memberFrom(user);
   const nav =
     role === "admin"
       ? adminNav
       : role === "reception"
         ? receptionNav
-        : studentNav;
+        : studentNav.filter(
+            ([id]) => id !== "grupos" || user.category === "Deportista",
+          );
   const roleName =
     role === "admin"
       ? "Administrador"
@@ -248,19 +266,13 @@ export default function App() {
     (r) => r.memberId === member.id,
   );
   const upcoming = [...myReservations]
-    .filter((r) => ["Reservada", "En sala", "Fuera de sala"].includes(r.status))
+    .filter((r) => ["Reservado", "Asistió"].includes(r.status))
     .sort((a, b) =>
       `${a.slot.date}${a.slot.start}`.localeCompare(
         `${b.slot.date}${b.slot.start}`,
       ),
     );
 
-  useEffect(() => {
-    const refresh = () => setState((current) => reconcileAttendance(current));
-    refresh();
-    const timer = setInterval(refresh, 30000);
-    return () => clearInterval(timer);
-  }, []);
   useEffect(() => {
     const media = matchMedia("(max-width: 760px)");
     const sync = () => {
@@ -304,30 +316,13 @@ export default function App() {
     heading.current?.focus();
   }, [currentPage, role]);
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      setFailure(true);
-      setNotice("No se pudieron guardar los cambios en este navegador.");
-    }
-  }, [state]);
-  useEffect(() => {
-    const sync = (event: StorageEvent) => {
-      if (event.key === STORAGE_KEY) setState(loadDemo());
-    };
-    addEventListener("storage", sync);
-    return () => removeEventListener("storage", sync);
-  }, []);
-  useEffect(() => {
     if (!notice) return;
     const timeout = setTimeout(() => setNotice(""), 6500);
     return () => clearTimeout(timeout);
   }, [notice]);
 
   function go(destination: string) {
-    navigate(
-      `/${rolePath(role)}/${destination}${role === "student" && member.id !== DEMO_MEMBER ? `?usuario=${encodeURIComponent(member.id)}` : ""}`,
-    );
+    navigate(`/${rolePath(role)}/${destination}`);
     setMenu(false);
   }
   function closeMenu() {
@@ -338,139 +333,42 @@ export default function App() {
     setFailure(error);
     setNotice(text);
   }
-  function update(
-    operation: (value: DemoState) => DemoState,
+  async function update(
+    operation: () => Promise<unknown>,
     success: string,
-  ): boolean {
+  ): Promise<boolean> {
+    if (submitting.current) return false;
+    submitting.current = true;
+    setBusy(true);
     try {
-      setState(operation(reconcileAttendance(state)));
+      await operation();
+      refresh();
       notify(success);
       return true;
-    } catch (error) {
+    } catch (cause) {
       notify(
-        error instanceof Error
-          ? error.message
+        cause instanceof Error
+          ? cause.message
           : "No se pudo completar la acción.",
         true,
       );
       return false;
+    } finally {
+      submitting.current = false;
+      setBusy(false);
     }
   }
-  function enter(nextRole: Role) {
-    navigate(
-      `/${rolePath(nextRole)}/inicio${nextRole === "student" && loginMemberId !== DEMO_MEMBER ? `?usuario=${encodeURIComponent(loginMemberId)}` : ""}`,
+  async function acknowledge() {
+    await update(
+      () =>
+        Promise.all(
+          state.alerts
+            .filter((a) => !a.acknowledgedAt)
+            .map((a) => api.acknowledge(a.id)),
+        ),
+      "Alertas leídas.",
     );
   }
-
-  if (
-    [
-      "recuperar-contrasena",
-      "activar-cuenta",
-      "restablecer-contrasena",
-    ].includes(segments[0])
-  )
-    return (
-      <AccountPage
-        mode={
-          segments[0] === "recuperar-contrasena"
-            ? "recover"
-            : segments[0] === "activar-cuenta"
-              ? "activate"
-              : "reset"
-        }
-        onBack={() => navigate("/")}
-      />
-    );
-
-  if (!role)
-    return (
-      <div className="login-page">
-        <section className="login-story" aria-label="Deportes UCN">
-          <Brand inverse />
-          <div className="login-copy">
-            <span className="eyebrow">DEPORTES UCN</span>
-            <h1>
-              Reserva tu
-              <br />
-              <span>próxima sesión.</span>
-            </h1>
-            <p>Sala de pesas · Deportes UCN</p>
-            <div className="story-line" />
-            <span className="story-bottom">
-              <Dumbbell size={20} aria-hidden="true" /> Sala de pesas ·
-              Universidad Católica del Norte
-            </span>
-          </div>
-        </section>
-        <main className="login-main">
-          <div className="login-form">
-            <span className="eyebrow">UNIVERSIDAD CATÓLICA DEL NORTE</span>
-            <h2>Accede a tu espacio</h2>
-            <p className="intro">Selecciona tu portal.</p>
-            <label className="field login-member">
-              Perfil de usuario
-              <select
-                value={loginMemberId}
-                onChange={(event) => setLoginMemberId(event.target.value)}
-              >
-                {[...state.members]
-                  .sort(
-                    (a, b) =>
-                      categoryPriority(a.category) -
-                      categoryPriority(b.category),
-                  )
-                  .map((value) => (
-                    <option value={value.id} key={value.id}>
-                      {value.name} · {value.branch ?? value.category}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <button className="profile-option" onClick={() => enter("student")}>
-              <span className="option-icon">
-                <UserRound />
-              </span>
-              <span>
-                <strong>Usuario / Estudiante</strong>
-                <small>Reservas y código de acceso</small>
-              </span>
-              <ArrowRight size={20} />
-            </button>
-            <button
-              className="profile-option"
-              onClick={() => enter("reception")}
-            >
-              <span className="option-icon">
-                <ScanLine />
-              </span>
-              <span>
-                <strong>Recepcionista</strong>
-                <small>Escaneo y estado actual</small>
-              </span>
-              <ArrowRight size={20} />
-            </button>
-            <button className="profile-option" onClick={() => enter("admin")}>
-              <span className="option-icon">
-                <ShieldCheck />
-              </span>
-              <span>
-                <strong>Administrador</strong>
-                <small>Usuarios y control de acceso</small>
-              </span>
-              <ArrowRight size={20} />
-            </button>
-            <button
-              className="text-button"
-              onClick={() => navigate("/recuperar-contrasena")}
-            >
-              Olvidé mi contraseña
-            </button>
-          </div>
-          <span className="login-footer">Deportes UCN · Sala de pesas</span>
-        </main>
-      </div>
-    );
-
   return (
     <div className="app-shell">
       <a
@@ -517,7 +415,7 @@ export default function App() {
           {nav.map(([id, label, Icon]) => (
             <a
               key={id}
-              href={`/${rolePath(role)}/${id}${role === "student" && member.id !== DEMO_MEMBER ? `?usuario=${encodeURIComponent(member.id)}` : ""}`}
+              href={`/${rolePath(role)}/${id}`}
               onClick={(event) => {
                 event.preventDefault();
                 go(id);
@@ -549,10 +447,12 @@ export default function App() {
           </button>
           <button
             className="logout"
-            onClick={() => {
-              navigate("/");
-              setMenu(false);
-            }}
+            onClick={() =>
+              void update(async () => {
+                await api.logout();
+                window.location.assign("/");
+              }, "Sesión cerrada.")
+            }
           >
             <LogOut size={17} aria-hidden="true" />
             Salir
@@ -618,6 +518,12 @@ export default function App() {
                       usuarios: "Usuarios",
                       grupos: "Sesiones por rama",
                       archivos: "Importar y exportar",
+                      ramas: "Ramas deportivas",
+                      alertas: "Inasistencias",
+                      visitas:
+                        role === "admin"
+                          ? "Historial de visitas"
+                          : "Historial de mis visitas",
                       perfil: "Mi perfil",
                     }[currentPage]}
               </h1>
@@ -675,42 +581,33 @@ export default function App() {
 
           {currentPage === "inicio" && role === "admin" && (
             <AdminDashboard
-              state={state}
               onAccess={() => go("acceso")}
               onReservations={() => go("reservas")}
               onUsers={() => go("usuarios")}
             />
           )}
           {currentPage === "inicio" && role === "reception" && (
-            <ReceptionDashboard state={state} onScan={() => go("acceso")} />
+            <ReceptionDashboard onScan={() => go("acceso")} />
           )}
-          {currentPage === "grupos" && role === "admin" && (
-            <GroupBooking
-              state={state}
-              onReserve={(branch, ids, slot) =>
-                update(
-                  (current) => reserveGroup(current, role, branch, ids, slot),
-                  "Sesión de rama confirmada.",
-                )
-              }
-            />
+          <LoadStatus error={remote.error} loading={remote.loading} />
+          {currentPage === "grupos" && (
+            <GroupBooking admin={role === "admin"} />
           )}
-          {currentPage === "archivos" && role === "admin" && (
-            <ExcelPanel
-              state={state}
-              onImport={(operation) =>
-                update(
-                  operation,
-                  "Importación confirmada. Las cuentas están pendientes de activación.",
-                )
-              }
-            />
+          {currentPage === "archivos" && role === "admin" && <ExcelPanel />}
+          {currentPage === "ramas" && role === "admin" && (
+            <BranchesPanel onChange={refresh} />
           )}
-
+          {currentPage === "alertas" && role === "admin" && <AlertsPanel />}
+          {currentPage === "visitas" && (
+            <HistoryPanel admin={role === "admin"} />
+          )}
           {currentPage === "horarios" && (
             <Schedule
               state={state}
-              onSelect={setSelected}
+              onSelect={(slot) => {
+                reserveKey.current = null;
+                setSelected(slot);
+              }}
               initialDate={scheduleDate}
               memberId={member.id}
             />
@@ -734,33 +631,21 @@ export default function App() {
               onCopy={notify}
             />
           )}
-          {currentPage === "acceso" && (
-            <AccessPanel
-              state={state}
-              role={role}
-              onSubmit={(code, action, document) =>
-                update(
-                  (s) => access(s, code, action, new Date(), role, document),
-                  action === "entry"
-                    ? "Entrada registrada."
-                    : "Salida registrada.",
-                )
-              }
-            />
-          )}
-          {currentPage === "usuarios" && (
+          {currentPage === "acceso" && <AccessPanel />}
+          {currentPage === "usuarios" && role === "admin" && (
             <Members
               state={state}
               onEdit={setEditingMember}
-              onToggle={(id) =>
-                update(
-                  (s) => ({
-                    ...s,
-                    members: s.members.map((m) =>
-                      m.id === id ? { ...m, enabled: !m.enabled } : m,
-                    ),
-                  }),
+              onToggle={(id, enabled) =>
+                void update(
+                  () => api.status(Number(id), enabled),
                   "Estado actualizado.",
+                )
+              }
+              onInvitation={(id) =>
+                void update(
+                  () => api.invitation(Number(id)),
+                  "Invitación reenviada.",
                 )
               }
             />
@@ -790,11 +675,7 @@ export default function App() {
                   )}
                   <div>
                     <dt>Correo</dt>
-                    <dd>
-                      {role === "admin"
-                        ? "recepcion@example.invalid"
-                        : member.email}
-                    </dd>
+                    <dd>{member.email}</dd>
                   </div>
                   <div>
                     <dt>Estado</dt>
@@ -835,7 +716,15 @@ export default function App() {
         </div>
       )}
       {selected && (
-        <Modal title="Confirmar reserva" onClose={() => setSelected(null)}>
+        <Modal
+          title="Confirmar reserva"
+          onClose={() => {
+            if (!busy) {
+              reserveKey.current = null;
+              setSelected(null);
+            }
+          }}
+        >
           <div className="confirmation-detail">
             <SlotDetails slot={selected} />
             <p className="meta">
@@ -845,17 +734,36 @@ export default function App() {
           </div>
           <p className="muted">La reserva quedará a nombre de {member.name}.</p>
           <div className="modal-actions">
-            <Button secondary onClick={() => setSelected(null)}>
+            <Button
+              secondary
+              onClick={() => {
+                reserveKey.current = null;
+                setSelected(null);
+              }}
+            >
               Volver
             </Button>
             <Button
-              onClick={() => {
+              disabled={busy}
+              onClick={async () => {
+                const body = JSON.stringify({
+                  id: selected.id,
+                  date: selected.date,
+                });
+                if (reserveKey.current?.body !== body)
+                  reserveKey.current = { body, key: crypto.randomUUID() };
                 if (
-                  update(
-                    (s) => reserve(s, member.id, selected),
+                  await update(
+                    () =>
+                      api.reserve(
+                        Number(selected.id),
+                        selected.date,
+                        reserveKey.current!.key,
+                      ),
                     "Reserva confirmada. Tu QR ya está disponible.",
                   )
                 ) {
+                  reserveKey.current = null;
                   setSelected(null);
                   go("reservas");
                 }
@@ -882,8 +790,14 @@ export default function App() {
             </Button>
             <button
               className="button danger"
-              onClick={() => {
-                if (update((s) => cancel(s, toCancel.id), "Reserva cancelada."))
+              disabled={busy}
+              onClick={async () => {
+                if (
+                  await update(
+                    () => api.cancel(Number(toCancel.id)),
+                    "Reserva cancelada.",
+                  )
+                )
                   setToCancel(null);
               }}
             >
@@ -899,110 +813,71 @@ export default function App() {
             setShowMember(false);
             setEditingMember(null);
           }}
-          onSave={(data) => {
-            const email = data.email.trim().toLowerCase();
-            if (
-              state.members.some(
-                (m) =>
-                  m.id !== editingMember?.id && m.email.toLowerCase() === email,
-              )
-            )
-              return "Este correo ya está registrado.";
-            if (
-              state.members.some(
-                (m) =>
-                  m.id !== editingMember?.id &&
-                  normalizeRut(m.rut) === normalizeRut(data.rut),
-              )
-            )
-              return "Este RUT ya está registrado.";
-            update(
-              (s) => ({
-                ...s,
-                members: editingMember
-                  ? s.members.map((value) =>
-                      value.id === editingMember.id
-                        ? { ...value, ...data, email }
-                        : value,
-                    )
-                  : [
-                      ...s.members,
-                      {
-                        ...data,
-                        email,
-                        id: crypto.randomUUID(),
-                        enabled: true,
-                        accountStatus: "Pendiente de activación",
-                      },
-                    ],
-              }),
-              editingMember
-                ? "Usuario actualizado."
-                : "Usuario agregado. Activación pendiente.",
-            );
-            setShowMember(false);
-            setEditingMember(null);
-            return "";
+          branches={state.branches}
+          onSave={async (data, password) => {
+            const firstName = data.firstName ?? "";
+            const lastName = data.lastName ?? "";
+            try {
+              const body = {
+                firstName,
+                lastName,
+                email: data.email,
+                role: data.role ?? "Usuario",
+                username: data.role === "Usuario" ? undefined : data.username,
+                category:
+                  data.role && data.role !== "Usuario"
+                    ? null
+                    : (data.category as import("./api").Category),
+                sportBranchId:
+                  (!data.role || data.role === "Usuario") &&
+                  data.category === "Deportista"
+                    ? (data.branchId ?? null)
+                    : null,
+              };
+              if (editingMember)
+                await api.updateUser(Number(editingMember.id), body);
+              else
+                await api.register({
+                  ...body,
+                  rut: data.rut,
+                  ...(password ? { password } : {}),
+                });
+              refresh();
+              setShowMember(false);
+              setEditingMember(null);
+              return "";
+            } catch (cause) {
+              return cause instanceof Error
+                ? cause.message
+                : "No se pudo guardar el usuario.";
+            }
           }}
         />
       )}
       {role === "student" &&
         !selected &&
         !toCancel &&
-        (state.alerts ?? []).some(
-          (alert) => alert.memberId === member.id && !alert.readAt,
-        ) && (
+        state.alerts.some((a) => !a.acknowledgedAt) && (
           <Modal
             title="Tienes reservas sin asistencia"
-            onClose={() =>
-              setState((current) => ({
-                ...current,
-                alerts: (current.alerts ?? []).map((alert) =>
-                  alert.memberId === member.id && !alert.readAt
-                    ? { ...alert, readAt: new Date().toISOString() }
-                    : alert,
-                ),
-              }))
-            }
+            onClose={() => void acknowledge()}
           >
             <p className="muted">No registramos tu ingreso a estas sesiones:</p>
             <ul className="attendance-alerts">
-              {(state.alerts ?? [])
-                .filter(
-                  (alert) => alert.memberId === member.id && !alert.readAt,
-                )
-                .map((alert) => {
-                  const reservation = state.reservations.find(
-                    (value) => value.id === alert.reservationId,
-                  );
-                  return (
-                    <li key={alert.id}>
-                      {reservation
-                        ? `${shortDate(reservation.slot.date)} · ${reservation.slot.start} a ${reservation.slot.end}`
-                        : "Sesión finalizada sin ingreso registrado"}
-                    </li>
-                  );
-                })}
+              {state.alerts
+                .filter((a) => !a.acknowledgedAt)
+                .map((a) => (
+                  <li key={a.id}>
+                    {shortDate(a.date)} · {a.startTime} a {a.endTime}
+                  </li>
+                ))}
             </ul>
             <p className="muted">
               Si necesitas corregir una asistencia, contacta a administración.
             </p>
-            <div className="modal-actions">
-              <Button
-                onClick={() =>
-                  setState((current) => ({
-                    ...current,
-                    alerts: (current.alerts ?? []).map((alert) =>
-                      alert.memberId === member.id && !alert.readAt
-                        ? { ...alert, readAt: new Date().toISOString() }
-                        : alert,
-                    ),
-                  }))
-                }
-              >
-                Entendido
-              </Button>
-            </div>
+            <Button disabled={busy} onClick={() => void acknowledge()}>
+              Entendido
+            </Button>
           </Modal>
         )}
     </div>
@@ -1015,13 +890,14 @@ function Schedule({
   initialDate,
   memberId,
 }: {
-  state: DemoState;
+  state: ViewState;
   onSelect: (slot: Slot) => void;
   initialDate: string;
   memberId: string;
 }) {
   const days = getDays();
   const [date, setDate] = useState(initialDate);
+  const schedules = useApiData(() => api.schedules(date), [date]);
   const profile = state.members.find((value) => value.id === memberId);
   return (
     <>
@@ -1065,22 +941,17 @@ function Schedule({
         </span>
       </div>
       <div className="slots-grid">
-        {slotsFor(date).map((slot) => {
-          const available = remaining(slot, state);
+        <LoadStatus error={schedules.error} loading={schedules.loading} />
+        {(schedules.data ?? []).map(slotFrom).map((slot) => {
+          const available = remaining(slot);
           const mine = state.reservations.some(
             (r) =>
               r.memberId === memberId &&
               r.slot.id === slot.id &&
-              r.status !== "Cancelada",
+              r.status !== "Cancelado",
           );
-          const ended = slotEnd(slot) <= new Date();
-          let unavailable = "";
-          try {
-            validateReservation(state, memberId, slot);
-          } catch (cause) {
-            unavailable =
-              cause instanceof Error ? cause.message : "No disponible";
-          }
+          const ended = hasStarted(slot);
+          const unavailable = ended ? "Este bloque ya comenzó." : "";
           return (
             <article
               key={slot.id}
@@ -1113,7 +984,8 @@ function Schedule({
                     : "Sin cupos disponibles"}
                 </span>
                 <span>
-                  {slot.capacity - available}/{slot.capacity}
+                  {slot.capacity - available}/{slot.capacity} ·{" "}
+                  {slot.groupSeats} cupos de grupo
                 </span>
               </div>
               <div className="capacity-bar">
@@ -1156,12 +1028,11 @@ function Schedule({
 
 function ReservationList({
   reservations,
-  state,
   admin,
   onCancel,
 }: {
   reservations: Reservation[];
-  state: DemoState;
+  state: ViewState;
   admin?: boolean;
   onCancel: (r: Reservation) => void;
 }) {
@@ -1184,11 +1055,7 @@ function ReservationList({
             </span>
           </div>
           <div className="reservation-info">
-            <h3>
-              {admin
-                ? state.members.find((m) => m.id === r.memberId)?.name
-                : "Sala de pesas"}
-            </h3>
+            <h3>{admin ? r.userName : "Sala de pesas"}</h3>
             <p>
               {shortDate(r.slot.date, { weekday: "long" })}
               <span>·</span>
@@ -1214,12 +1081,7 @@ function ReservationList({
                 })}
               </small>
             )}
-            {(r.branch || r.groupId) && (
-              <small>
-                {r.branch}
-                {r.groupId ? " · Sesión de rama" : ""}
-              </small>
-            )}
+            {r.branch && <small>{r.branch}</small>}
             {!!r.visits?.length && (
               <details className="visit-details">
                 <summary>
@@ -1247,7 +1109,13 @@ function ReservationList({
             )}
           </div>
           <Badge tone={statusClass[r.status]}>{r.status}</Badge>
-          {r.status === "Reservada" && (
+          {!admin && ["Reservado", "Asistió"].includes(r.status) && (
+            <details className="card">
+              <summary>Ver código QR</summary>
+              <BlockQr id={Number(r.id)} />
+            </details>
+          )}
+          {r.status === "Reservado" && (
             <button
               className="text-button cancel-link"
               onClick={() => onCancel(r)}
@@ -1269,7 +1137,7 @@ function Reservations({
   onReserve,
 }: {
   reservations: Reservation[];
-  state: DemoState;
+  state: ViewState;
   admin: boolean;
   onCancel: (r: Reservation) => void;
   onReserve: () => void;
@@ -1290,12 +1158,10 @@ function Reservations({
   );
   const filters = [
     "Todas",
-    "Reservada",
-    "En sala",
-    "Fuera de sala",
-    "Completada",
-    "Cancelada",
-    "No asistió",
+    "Reservado",
+    "Asistió",
+    "Cancelado",
+    "Inasistencia",
   ];
   const visible = [...scoped]
     .reverse()
@@ -1324,11 +1190,11 @@ function Reservations({
             className={f === filter ? "selected" : ""}
             onClick={() => setFilter(f)}
           >
-            {f === "Reservada"
+            {f === "Reservado"
               ? "Pendientes"
-              : f === "Completada"
-                ? "Completadas"
-                : f === "Cancelada"
+              : f === "Asistió"
+                ? "Asistidas"
+                : f === "Cancelado"
                   ? "Canceladas"
                   : f}
             <span>
@@ -1371,7 +1237,6 @@ function QrPanel({
   reservations,
   member,
   onReserve,
-  onCopy,
 }: {
   reservations: Reservation[];
   member: Member;
@@ -1379,19 +1244,36 @@ function QrPanel({
   onCopy: (text: string, error?: boolean) => void;
 }) {
   const [selectedId, setSelectedId] = useState("");
-  const reservation =
-    reservations.find((r) => r.id === selectedId) ?? reservations[0];
-  if (!reservation)
+  const groups = useApiData(
+    () =>
+      member.category === "Deportista" ? api.myGroups() : Promise.resolve([]),
+    [member.id, member.category],
+  );
+  const choices = [
+    ...reservations.map((r) => ({
+      key: `r:${r.id}`,
+      id: Number(r.id),
+      group: false,
+      label: `${shortDate(r.slot.date)} · ${r.slot.start}`,
+    })),
+    ...(groups.data ?? [])
+      .filter((g) => g.status === "Activa")
+      .map((g) => ({
+        key: `g:${g.id}`,
+        id: g.id,
+        group: true,
+        label: `${g.sportBranch.name} · ${shortDate(g.date)} · ${g.startTime}`,
+      })),
+  ];
+  const selected = choices.find((r) => r.key === selectedId) ?? choices[0];
+  if (groups.loading || groups.error)
+    return <LoadStatus error={groups.error} loading={groups.loading} />;
+  if (!selected)
     return (
       <section className="card">
         <Empty
           title="Primero, una reserva"
-          action={
-            <Button onClick={onReserve}>
-              Reservar un horario
-              <ArrowRight size={17} />
-            </Button>
-          }
+          action={<Button onClick={onReserve}>Reservar un horario</Button>}
         >
           Tu código estará disponible al confirmar un bloque.
         </Empty>
@@ -1400,105 +1282,74 @@ function QrPanel({
   return (
     <div className="qr-layout">
       <section className="card qr-card">
-        <div className="qr-card-heading">
-          <Brand />
-        </div>
-        <div className="qr-person">
-          <h2>{member.name}</h2>
-          <strong className="qr-rut">
-            {formatRut(member.rut) || "RUT pendiente"}
-          </strong>
-          <span>{member.category}</span>
-          {member.branch && <span>{member.branch}</span>}
-        </div>
-        {reservations.length > 1 && (
-          <label className="field">
-            Reserva
-            <select
-              value={reservation.id}
-              onChange={(e) => setSelectedId(e.target.value)}
-            >
-              {reservations.map((r) => (
-                <option value={r.id} key={r.id}>
-                  {shortDate(r.slot.date)} · {r.slot.start}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <div className="qr-frame">
-          <QRCodeSVG
-            value={ticket(reservation.id)}
-            size={224}
-            level="M"
-            marginSize={3}
-            title="Código QR de la reserva"
-          />
-        </div>
-        <Badge tone={statusClass[reservation.status]}>
-          {reservation.status}
-        </Badge>
-        <div className="qr-slot">
-          <strong className="capitalize">
-            {shortDate(reservation.slot.date)}
-          </strong>
-          <span>
-            {reservation.slot.start} a {reservation.slot.end}
-          </span>
-          <span>Sala de pesas</span>
-        </div>
-        <button
-          className="text-button"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(ticket(reservation.id));
-              onCopy("Código copiado.");
-            } catch {
-              onCopy(
-                "No pudimos copiar el código. Puedes seleccionarlo debajo.",
-                true,
-              );
-            }
-          }}
-        >
-          Copiar código
-          <ArrowUpRight size={16} />
-        </button>
-        <code className="ticket-code">{ticket(reservation.id)}</code>
+        <Brand />
+        <label className="field">
+          Reserva
+          <select
+            value={selected.key}
+            onChange={(e) => setSelectedId(e.target.value)}
+          >
+            {choices.map((r) => (
+              <option key={r.key} value={r.key}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <BlockQr id={selected.id} group={selected.group} />
       </section>
       <aside className="qr-instructions">
-        <span className="eyebrow">EN RECEPCIÓN</span>
         <h2>Cómo usar tu QR</h2>
-        <ol>
-          <li>
-            <span>01</span>
-            <div>
-              <h3>Presenta tu código</h3>
-              <p>
-                Preséntalo junto a tu Carnet, TNE o credencial universitaria.
-              </p>
-            </div>
-          </li>
-          <li>
-            <span>02</span>
-            <div>
-              <h3>Disfruta tu sesión</h3>
-              <p>Tu bloque dura 90 minutos.</p>
-            </div>
-          </li>
-          <li>
-            <span>03</span>
-            <div>
-              <h3>Registra tu salida</h3>
-              <p>
-                Usa el mismo QR para salir y volver a ingresar mientras siga
-                vigente tu sesión.
-              </p>
-            </div>
-          </li>
-        </ol>
+        <p>Preséntalo junto a tu Carnet, TNE o credencial universitaria.</p>
+        <p>
+          Para salir, recepción te selecciona en la lista de personas dentro.
+        </p>
       </aside>
     </div>
+  );
+}
+function ResetUserPassword({ id }: { id: number }) {
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <details>
+      <summary>Restablecer contraseña</summary>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            setMessage((await api.passwordReset(id, password)).message);
+            setPassword("");
+          } catch (cause) {
+            setMessage(
+              cause instanceof Error
+                ? cause.message
+                : "No se pudo restablecer.",
+            );
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label className="field">
+          Contraseña temporal
+          <input
+            required
+            type="password"
+            minLength={8}
+            maxLength={128}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <button className="button" disabled={busy}>
+          Restablecer
+        </button>
+        <p role="status">{message}</p>
+      </form>
+    </details>
   );
 }
 
@@ -1506,37 +1357,34 @@ function Members({
   state,
   onToggle,
   onEdit,
+  onInvitation,
 }: {
-  state: DemoState;
-  onToggle: (id: string) => void;
+  state: ViewState;
+  onToggle: (id: string, enabled: boolean) => void;
   onEdit: (member: Member) => void;
+  onInvitation: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Todos");
   const [branch, setBranch] = useState("");
   const [category, setCategory] = useState("");
-  const branches = [
-    ...new Set(
-      state.members.flatMap((member) => (member.branch ? [member.branch] : [])),
-    ),
-  ].sort();
-  const members = state.members
-    .filter(
-      (m) =>
-        `${m.name} ${m.rut} ${normalizeRut(m.rut)} ${m.email} ${m.category} ${m.branch ?? ""}`
-          .toLowerCase()
-          .includes(search.toLowerCase()) &&
-        (filter === "Todos" || m.enabled === (filter === "Habilitados")) &&
-        (!branch || m.branch === branch) &&
-        (!category || m.category === category),
-    )
-    .sort(
-      (a, b) =>
-        categoryPriority(a.category) - categoryPriority(b.category) ||
-        a.name.localeCompare(b.name),
-    );
+  const branches = state.branches.map((branch) => branch.name).sort();
+  const remoteUsers = useApiData(
+    () =>
+      api.users({
+        search,
+        category,
+        branchId: state.branches.find((b) => b.name === branch)?.id,
+        enabled: filter === "Todos" ? undefined : filter === "Habilitados",
+      }),
+    [search, category, branch, filter, state],
+  );
+  const members = (remoteUsers.data ?? [])
+    .map(memberFrom)
+    .sort((a, b) => a.name.localeCompare(b.name));
   return (
     <section className="card members-card">
+      <LoadStatus error={remoteUsers.error} loading={remoteUsers.loading} />
       <div className="members-toolbar">
         <label className="search">
           <Search size={18} aria-hidden="true" />
@@ -1628,6 +1476,15 @@ function Members({
                   >
                     Editar
                   </button>
+                  {m.accountStatus === "Pendiente" && (
+                    <button
+                      className="text-button"
+                      onClick={() => onInvitation(m.id)}
+                    >
+                      Reenviar invitación
+                    </button>
+                  )}
+                  <ResetUserPassword id={Number(m.id)} />
                 </td>
                 <td>
                   <button
@@ -1635,7 +1492,7 @@ function Members({
                     role="switch"
                     aria-checked={m.enabled}
                     aria-label={`Habilitar acceso de ${m.name}`}
-                    onClick={() => onToggle(m.id)}
+                    onClick={() => onToggle(m.id, !m.enabled)}
                   >
                     <span />
                   </button>
@@ -1661,20 +1518,32 @@ function MemberForm({
   onSave,
   onClose,
   initial,
+  branches,
 }: {
-  onSave: (data: Omit<Member, "id" | "enabled">) => string;
+  onSave: (
+    data: Omit<Member, "id" | "enabled">,
+    password?: string,
+  ) => Promise<string>;
   onClose: () => void;
   initial?: Member;
+  branches: import("./api").BranchResponse[];
 }) {
-  const [name, setName] = useState(initial?.name ?? "");
+  const [firstName, setFirstName] = useState(initial?.firstName ?? "");
+  const [lastName, setLastName] = useState(initial?.lastName ?? "");
   const [rut, setRut] = useState(initial?.rut ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [category, setCategory] = useState(initial?.category ?? "Deportista");
-  const [branch, setBranch] = useState(initial?.branch ?? "");
+  const [branch, setBranch] = useState(String(initial?.branchId ?? ""));
+  const [password, setPassword] = useState("");
+  const [memberRole, setMemberRole] = useState<import("./api").Role>(
+    initial?.role ?? "Usuario",
+  );
+  const [username, setUsername] = useState(initial?.username ?? "");
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
-    if (name.trim().split(/\s+/).length < 2) {
+    if (!firstName.trim() || !lastName.trim()) {
       setError("Ingresa nombre y apellido.");
       return;
     }
@@ -1682,19 +1551,35 @@ function MemberForm({
       setError("Ingresa un RUT válido con su dígito verificador.");
       return;
     }
-    if (category === "Deportista" && !branch.trim()) {
+    if (
+      memberRole === "Usuario" &&
+      category === "Deportista" &&
+      !branch.trim()
+    ) {
       setError("Indica la rama deportiva.");
       return;
     }
+    setSaving(true);
     setError(
-      onSave({
-        name: name.trim(),
-        rut: formatRut(rut),
-        email,
-        category,
-        branch: category === "Deportista" ? branch.trim() : undefined,
-      }),
+      await onSave(
+        {
+          name: `${firstName.trim()} ${lastName.trim()}`,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          role: memberRole,
+          username,
+          rut: formatRut(rut),
+          email,
+          category,
+          branchId:
+            memberRole === "Usuario" && category === "Deportista"
+              ? Number(branch)
+              : undefined,
+        },
+        password,
+      ),
     );
+    setSaving(false);
   }
   return (
     <Modal
@@ -1703,19 +1588,66 @@ function MemberForm({
     >
       <form onSubmit={submit} className="member-form">
         <label className="field">
-          Nombre y apellido
+          Rol
+          <select
+            value={memberRole}
+            onChange={(e) =>
+              setMemberRole(e.target.value as import("./api").Role)
+            }
+          >
+            {["Usuario", "Admin", "Recepcionista"].map((r) => (
+              <option key={r}>{r}</option>
+            ))}
+          </select>
+        </label>
+        {memberRole !== "Usuario" && (
+          <label className="field">
+            Nombre de usuario
+            <input
+              required
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </label>
+        )}
+        {!initial && (
+          <label className="field">
+            Contraseña temporal (opcional)
+            <input
+              type="password"
+              minLength={8}
+              maxLength={128}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </label>
+        )}
+        <label className="field">
+          Nombre
           <input
             autoFocus
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
             required
             maxLength={100}
             autoComplete="off"
           />
         </label>
         <label className="field">
+          Apellido
+          <input
+            required
+            maxLength={100}
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            autoComplete="off"
+          />
+        </label>
+        <label className="field">
           RUT
           <input
+            readOnly={!!initial}
             value={rut}
             onChange={(event) => setRut(event.target.value)}
             required
@@ -1747,16 +1679,23 @@ function MemberForm({
             ))}
           </select>
         </label>
-        {category === "Deportista" && (
+        {memberRole === "Usuario" && category === "Deportista" && (
           <label className="field">
             Rama deportiva
-            <input
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
+            <select
               required
-              maxLength={80}
-              placeholder="Ej. Fútbol"
-            />
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+            >
+              <option value="">Selecciona una rama</option>
+              {branches
+                .filter((b) => b.enabled || b.id === initial?.branchId)
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+            </select>
           </label>
         )}
         {error && (
@@ -1768,7 +1707,7 @@ function MemberForm({
           <Button secondary onClick={onClose}>
             Cancelar
           </Button>
-          <button type="submit" className="button">
+          <button type="submit" className="button" disabled={saving}>
             {initial ? "Guardar cambios" : "Agregar usuario"}
           </button>
         </div>

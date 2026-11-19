@@ -1,29 +1,20 @@
-import { useState } from "react";
-import { Download, FileSpreadsheet, Upload } from "lucide-react";
-import {
-  confirmUserImport,
-  downloadExport,
-  downloadTemplate,
-  previewUserFile,
-  type ImportPreview,
-} from "../excel";
-import type { DemoState } from "../domain";
-
-export default function ExcelPanel({
-  state,
-  onImport,
-}: {
-  state: DemoState;
-  onImport: (operation: (state: DemoState) => DemoState) => boolean;
-}) {
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
+﻿import { useRef, useState } from "react";
+import { Download, Upload } from "lucide-react";
+import { api, type ImportPreview, type ImportResult } from "../api";
+import { ReportFilterFields } from "./Records";
+export default function ExcelPanel() {
+  const [preview, setPreview] = useState<ImportPreview>();
+  const [result, setResult] = useState<ImportResult>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [filters, setFilters] = useState<import("../api").ReportFilters>({});
+  const key = useRef<string | null>(null);
+  const sending = useRef(false);
   async function perform(operation: () => Promise<void>) {
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true);
     setError("");
-    setSuccess("");
     try {
       await operation();
     } catch (cause) {
@@ -33,6 +24,7 @@ export default function ExcelPanel({
           : "No se pudo procesar el archivo.",
       );
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   }
@@ -47,29 +39,21 @@ export default function ExcelPanel({
           Usuarios, sesiones, reservas, visitas, grupos e inasistencias en un
           solo Excel.
         </p>
-        <dl className="export-counts">
-          <div>
-            <dt>Usuarios</dt>
-            <dd>{state.members.length}</dd>
-          </div>
-          <div>
-            <dt>Reservas</dt>
-            <dd>{state.reservations.length}</dd>
-          </div>
-          <div>
-            <dt>Visitas</dt>
-            <dd>
-              {state.reservations.reduce(
-                (sum, r) => sum + (r.visits?.length ?? 0),
-                0,
-              )}
-            </dd>
-          </div>
-        </dl>
+        <ReportFilterFields value={filters} onChange={setFilters} />
         <button
           className="button"
           disabled={busy}
-          onClick={() => void perform(() => downloadExport(state, "admin"))}
+          onClick={() =>
+            void perform(async () => {
+              const { blob, filename } = await api.export(filters);
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = filename;
+              link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            })
+          }
         >
           <Download size={18} />
           Exportar todo (.xlsx)
@@ -81,30 +65,24 @@ export default function ExcelPanel({
           <Upload size={21} />
         </div>
         <p className="muted">
-          Carga la plantilla con RUT, nombre, apellido, correo, categoría y
-          rama. Se validará antes de crear usuarios.
+          Carga un archivo con RUT, Nombre, Apellido, Correo, Categoria y Rama.
+          Se validará antes de crear usuarios.
         </p>
-        <button
-          className="text-button"
-          disabled={busy}
-          onClick={() => void perform(downloadTemplate)}
-        >
-          <FileSpreadsheet size={17} />
-          Descargar plantilla
-        </button>
         <label className="field">
           Archivo de usuarios (.xlsx)
           <input
             type="file"
             accept=".xlsx"
             disabled={busy}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              setPreview(null);
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              setPreview(undefined);
+              setResult(undefined);
+              key.current = null;
               if (file)
-                void perform(async () => {
-                  setPreview(await previewUserFile(file, state));
-                });
+                void perform(async () =>
+                  setPreview(await api.previewImport(file)),
+                );
             }}
           />
         </label>
@@ -112,63 +90,74 @@ export default function ExcelPanel({
           <div className="import-preview">
             <h3>Vista previa</h3>
             <p>
-              {preview.total} filas · {preview.members.length} válidas ·{" "}
-              {preview.errors.length} con errores
+              {preview.summary.create} para crear · {preview.summary.skip}{" "}
+              omitidas · {preview.summary.error} con errores
             </p>
-            {preview.errors.length > 0 && (
-              <ul className="import-errors">
-                {preview.errors.map((item) => (
-                  <li key={item.row}>
-                    Fila {item.row}: {item.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <ul className="import-names">
-              {preview.members.slice(0, 10).map((member) => (
-                <li key={member.id}>
-                  {member.name} · {member.rut} ·{" "}
-                  {member.branch ?? member.category}
-                </li>
-              ))}
-            </ul>
-            {preview.members.length > 10 && (
-              <p className="muted">
-                Y {preview.members.length - 10} usuarios más.
-              </p>
-            )}
+            <p>
+              Vigencia: {new Date(preview.expiresAt).toLocaleString("es-CL")}
+            </p>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fila</th>
+                    <th>Usuario</th>
+                    <th>RUT</th>
+                    <th>Acción</th>
+                    <th>Mensajes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.map((r) => (
+                    <tr key={r.row}>
+                      <td>{r.row}</td>
+                      <td>
+                        {r.firstName} {r.lastName}
+                      </td>
+                      <td>{r.rut}</td>
+                      <td>{r.action}</td>
+                      <td>{r.messages.join(" · ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <button
               className="button"
-              disabled={
-                busy || !!preview.errors.length || !preview.members.length
+              disabled={busy || !!result || !preview.summary.create}
+              onClick={() =>
+                void perform(async () => {
+                  key.current ??= crypto.randomUUID();
+                  setResult(await api.confirmImport(preview.id, key.current));
+                })
               }
-              onClick={() => {
-                if (
-                  onImport((current) =>
-                    confirmUserImport(current, preview, "admin"),
-                  )
-                ) {
-                  setPreview(null);
-                  setSuccess("Usuarios creados con activación pendiente.");
-                }
-              }}
             >
-              Confirmar importación ({preview.members.length})
+              Confirmar importación ({preview.summary.create})
             </button>
           </div>
         )}
+        {result && (
+          <div role="status">
+            <p>
+              {result.created} creados · {result.skipped} omitidos ·{" "}
+              {result.failed} fallidos
+            </p>
+            <ul>
+              {result.rows.map((r) => (
+                <li key={r.row}>
+                  Fila {r.row}: {r.action} · {r.messages.join(" · ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
-      {busy && (
-        <p className="muted" role="status">
-          Procesando archivo…
-        </p>
-      )}
+      {busy && <p role="status">Procesando archivo…</p>}
       {error && (
         <p className="form-error" role="alert">
           {error}
         </p>
       )}
-      {success && <p role="status">{success}</p>}
     </div>
   );
 }

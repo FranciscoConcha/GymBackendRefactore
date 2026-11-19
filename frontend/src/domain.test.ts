@@ -1,110 +1,43 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+﻿import { expect, it } from "vitest";
 import {
-  access,
-  cancel,
-  DEMO_MEMBER,
-  getDays,
-  initialState,
-  loadDemo,
+  formatRut,
+  isValidRut,
+  localDate,
+  hasStarted,
   remaining,
-  reserve,
-  slotsFor,
-  STORAGE_KEY,
-  ticket,
+  slotFrom,
+  qrValidity,
 } from "./domain";
-
-describe("flujo de demostración", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-11-13T08:30:00"));
+it("normaliza y valida el RUT", () => {
+  expect(formatRut("123456785")).toBe("12.345.678-5");
+  expect(isValidRut("12.345.678-5")).toBe(true);
+  expect(isValidRut("12.345.678-0")).toBe(false);
+});
+it("no suma otra vez las reservas a reservedCount, que incluye los grupos", () => {
+  const slot = slotFrom({
+    id: 1,
+    day: "Lunes",
+    date: "2026-11-19",
+    startTime: "08:00",
+    endTime: "09:30",
+    zone: "Sala",
+    capacity: 30,
+    reservedCount: 18,
+    individualReservations: 8,
+    groupSeats: 10,
   });
-  afterEach(() => vi.useRealTimers());
-  const slot = slotsFor("2026-11-13")[0];
-  it("reserva un bloque y descuenta un cupo", () => {
-    const state = reserve(structuredClone(initialState), DEMO_MEMBER, slot);
-    expect(state.reservations[0].status).toBe("Reservada");
-    expect(remaining(slot, state)).toBe(22);
-  });
-  it("rechaza una reserva duplicada", () => {
-    const state = reserve(structuredClone(initialState), DEMO_MEMBER, slot);
-    expect(() => reserve(state, DEMO_MEMBER, slot)).toThrow("Ya tienes");
-  });
-  it("rechaza un bloque completo", () => {
-    expect(() =>
-      reserve(
-        structuredClone(initialState),
-        DEMO_MEMBER,
-        slotsFor(slot.date)[2],
-      ),
-    ).toThrow("no tiene cupos");
-  });
-  it("rechaza usuarios deshabilitados", () => {
-    expect(() =>
-      reserve(structuredClone(initialState), "staff-1", slot),
-    ).toThrow("no está habilitada");
-  });
-  it("cancela, libera cupo y permite volver a reservar", () => {
-    const state = reserve(structuredClone(initialState), DEMO_MEMBER, slot);
-    const cancelled = cancel(state, state.reservations[0].id);
-    expect(remaining(slot, cancelled)).toBe(23);
-    expect(reserve(cancelled, DEMO_MEMBER, slot).reservations).toHaveLength(2);
-  });
-  it("completa el recorrido de entrada y salida", () => {
-    const state = reserve(structuredClone(initialState), DEMO_MEMBER, slot);
-    const code = ticket(state.reservations[0].id);
-    const entered = access(state, code, "entry");
-    expect(entered.reservations[0].entry).toBeTruthy();
-    expect(remaining(slot, entered)).toBe(22);
-    const exited = access(entered, code, "exit");
-    expect(exited.reservations[0].status).toBe("Fuera de sala");
-    expect(exited.reservations[0].exit).toBeTruthy();
-  });
-  it("rechaza doble entrada y salida sin entrada", () => {
-    const state = reserve(structuredClone(initialState), DEMO_MEMBER, slot);
-    const code = ticket(state.reservations[0].id);
-    expect(() => access(state, code, "exit")).toThrow("No hay una entrada");
-    expect(() => access(access(state, code, "entry"), code, "entry")).toThrow(
-      "entrada abierta",
-    );
-  });
-  it("no permite cancelar después de ingresar", () => {
-    const state = reserve(structuredClone(initialState), DEMO_MEMBER, slot);
-    const entered = access(state, ticket(state.reservations[0].id), "entry");
-    expect(() => cancel(entered, state.reservations[0].id)).toThrow(
-      "Solo puedes",
-    );
-  });
-  it("permite salir aunque se deshabilite la cuenta durante la visita", () => {
-    let state = reserve(structuredClone(initialState), DEMO_MEMBER, slot);
-    const code = ticket(state.reservations[0].id);
-    state = access(state, code, "entry");
-    state.members[0].enabled = false;
-    expect(access(state, code, "exit").reservations[0].status).toBe(
-      "Fuera de sala",
-    );
-  });
-  it("rechaza códigos ajenos o desconocidos", () => {
-    expect(() => access(initialState, "untrusted", "entry")).toThrow(
-      "no válido",
-    );
-    expect(() => access(initialState, "UCN-DEMO:unknown", "entry")).toThrow(
-      "No encontramos",
-    );
-  });
-  it("genera seis días de atención y omite domingo", () => {
-    const days = getDays(new Date("2026-11-14T12:00:00"));
-    expect(days).toHaveLength(6);
-    expect(days[0]).toBe("2026-11-14");
-    expect(days[1]).toBe("2026-11-16");
-  });
-  it("recupera un estado seguro ante datos locales dañados", () => {
-    localStorage.setItem(STORAGE_KEY, "{broken");
-    expect(loadDemo()).toEqual(initialState);
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ members: [], reservations: [] }),
-    );
-    expect(loadDemo()).toEqual(initialState);
-  });
+  expect(remaining(slot)).toBe(12);
+  expect(slot.groupSeats).toBe(10);
+  expect(hasStarted(slot, new Date("2026-11-19T10:59:00Z"))).toBe(false);
+  expect(hasStarted(slot, new Date("2026-11-19T11:00:00Z"))).toBe(true);
+});
+it("usa la fecha de Santiago y no la del navegador", () => {
+  expect(localDate(new Date("2026-11-19T01:00:00Z"))).toBe("2026-11-18");
+});
+it("informa los límites inclusivo y exclusivo de vigencia", () => {
+  const from = "2026-11-19T10:45:00Z",
+    until = "2026-11-19T12:30:00Z";
+  expect(qrValidity(from, until, Date.parse(from) - 1)).toContain("todavía");
+  expect(qrValidity(from, until, Date.parse(from))).toContain("vigente para");
+  expect(qrValidity(from, until, Date.parse(until))).toContain("venció");
 });

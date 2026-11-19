@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { api } from "../api";
+import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, KeyRound, Mail } from "lucide-react";
 
 export default function AccountPage({
@@ -14,7 +15,18 @@ export default function AccountPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const token = new URLSearchParams(location.search).get("token") ?? "";
+  const [token] = useState(
+    () => new URLSearchParams(window.location.search).get("token") ?? "",
+  );
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("token");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      url.pathname + url.search + url.hash,
+    );
+  }, []);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -28,36 +40,17 @@ export default function AccountPage({
     }
     setBusy(true);
     try {
-      const base = String(import.meta.env.VITE_API_BASE_URL ?? "/api").replace(
-        /\/$/,
-        "",
-      );
-      const endpoint =
-        mode === "recover"
-          ? "/auth/password-resets"
-          : mode === "activate"
-            ? "/auth/activate"
-            : "/auth/password-resets/confirm";
-      const response = await fetch(`${base}${endpoint}`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          mode === "recover" ? { email } : { token, password },
-        ),
-      });
-      if (!response.headers.get("content-type")?.includes("application/json"))
-        throw new Error("El servicio de cuentas todavía no está disponible.");
-      if (!response.ok)
-        throw new Error(
-          mode === "recover"
-            ? "No se pudo procesar la solicitud. Intenta nuevamente."
-            : "El enlace no es válido, venció o ya fue utilizado.",
-        );
+      if (mode === "recover") await api.recover(email);
+      else if (mode === "activate") await api.activate(token, password);
+      else await api.reset(token, password);
       setPassword("");
       setConfirm("");
       setSuccess(true);
     } catch (cause) {
+      if (mode === "recover") {
+        setSuccess(true);
+        return;
+      }
       setError(
         cause instanceof Error
           ? cause.message
@@ -115,11 +108,12 @@ export default function AccountPage({
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     autoComplete="new-password"
-                    minLength={12}
+                    minLength={8}
+                    maxLength={128}
                     required
                   />
                 </label>
-                <p className="muted">Usa al menos 12 caracteres.</p>
+                <p className="muted">Usa entre 8 y 128 caracteres.</p>
                 <label className="field">
                   Repetir contraseña
                   <input
@@ -127,7 +121,8 @@ export default function AccountPage({
                     value={confirm}
                     onChange={(event) => setConfirm(event.target.value)}
                     autoComplete="new-password"
-                    minLength={12}
+                    minLength={8}
+                    maxLength={128}
                     required
                   />
                 </label>
