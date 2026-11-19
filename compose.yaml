@@ -27,6 +27,9 @@ services:
       Cors__AllowedOrigins__0: http://localhost:4173
       Cors__AllowedOrigins__1: http://localhost:8080
       Database__Initialize: "true"
+      # Solo el proxy del frontend (red interna de Compose) puede fijar X-Forwarded-For.
+      ForwardedHeaders__Enabled: "true"
+      ForwardedHeaders__KnownNetworks__0: 172.16.0.0/12
       Bootstrap__AdminRut: ${BOOTSTRAP_ADMIN_RUT:-}
       Bootstrap__AdminEmail: ${BOOTSTRAP_ADMIN_EMAIL:-}
       Bootstrap__AdminUsername: ${BOOTSTRAP_ADMIN_USERNAME:-}
@@ -34,6 +37,16 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - api
     security_opt:
       - no-new-privileges:true
     cap_drop:
